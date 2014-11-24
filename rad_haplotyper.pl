@@ -271,7 +271,10 @@ foreach my $ind (@samples) {
 		if (scalar(keys %{$snps{$locus}}) == 1) { # There is only one SNP at this locus - build haplotypes out of the genotype
 			my @position = keys %{$snps{$locus}};
 			my @genotype = split('', $snps{$locus}{$position[0]}[$indiv_no]);
-			next if $genotype[0] eq '.';	# missing data
+			if ($genotype[0] eq '.') {	# missing data
+				$fail_codes{$locus} = 3; # fail code for missing genotype
+				next;
+			}
 			my @haps;
 			foreach my $bin_base (@genotype) {
 				my $base = $alleles{$locus}{$position[0]}[$bin_base];
@@ -299,7 +302,9 @@ foreach my $ind (@samples) {
 				my @genotype = split('', $snps{$locus}{$snp}[$indiv_no]);
 				$miss_bool = 1 if $genotype[0] eq '.';	# missing data
 			}
+			$fail_codes{$locus} = 3 if $miss_bool == 1; # fail code for missing genotype
 			next if $miss_bool == 1;
+			
 		}
 
 
@@ -315,6 +320,8 @@ foreach my $ind (@samples) {
 				$fail_codes{$locus} = $failed2;
 			} else {
 				print LOG "Fixed... huzzah!\n";
+				@haplotypes = @{$hap_ref};
+				$haplotypes{$locus}{$ind} = \@haplotypes;
 			}
 		} else {
 			$haplotypes{$locus}{$ind} = \@haplotypes;
@@ -442,28 +449,28 @@ if ($imafile) {
 # Print out some stats files for the run
 open(STATS, ">", 'stats.out') or die $!;
 #print STATS Dumper(\%status);
-print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Inds_Failed', 'Prop_Haplotyped', 'Status', 'Comment'), "\n";
+print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Total_Inds', 'Prop_Haplotyped', 'Status', 'Comment'), "\n";
 foreach my $locus (@all_loci) {
-	if ($status{$locus} eq 'PASSED') {
-		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'PASSED', '-'), "\n";
+	my $comment;
+	if ($failed{$locus}) {
+
+		my %count;
+		foreach my $ind (keys %{$failed{$locus}}) {
+			$count{$failed{$locus}{$ind}}++;
+		}
+		foreach my $code (keys %count) {
+			if ($code == 1) {
+				$comment = $comment . 'Possible paralog ' . "($count{$code})";
+			} elsif ($code == 2) {
+				$comment = $comment . 'Low coverage or miscalled SNPs ' . "($count{$code})";
+			} elsif ($code == 3) {
+				$comment = $comment . 'Missing genotype ' . "($count{$code})";
+			}
+		}
 	}
 	
-	my %count;
-	foreach my $ind (keys %{$failed{$locus}}) {
-		$count{$failed{$locus}{$ind}}++;
-	}
-	my $max = 0;
-	my $most_prob;
-	my $reason;
-	foreach my $code (keys %count) {
-		$most_prob = $count{$code} if $count{$code} > $max;
-	}
-	if ($most_prob == 1) {
-		$reason = 'Possible paralog';
-	} elsif ($most_prob == 2) {
-		$reason = 'Low coverage or miscalled SNPs';
-	} else {
-		$reason = '-';
+	if ($status{$locus} eq 'PASSED') {
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'PASSED', $comment), "\n";
 	}
 	
 	if ($status{$locus} =~ 'missing') {
@@ -488,7 +495,7 @@ foreach my $locus (@all_loci) {
 		# }
 	
 	
-		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FAILED', $reason), "\n";
+		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FAILED', $comment), "\n";
 	}
 	if ($status{$locus} =~ /complex/i) {
 		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', 'Complex'), "\n";
