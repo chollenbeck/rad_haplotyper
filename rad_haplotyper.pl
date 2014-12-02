@@ -9,6 +9,7 @@ use List::MoreUtils qw/uniq firstidx/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
+my $command = 'rad_haplotyper ' . join(" ", @ARGV), "\n";
 
 pod2usage(-verbose => 1) if @ARGV == 0;
 
@@ -28,6 +29,7 @@ my $threads = '';
 my $miss_cutoff = 0.9;
 my $popmap = '';
 my $hap_num_filt = 100;
+my $extra = '';
 my @samp_subset;
 
 GetOptions(	'vcffile|i=s' => \$vcffile,
@@ -44,11 +46,15 @@ GetOptions(	'vcffile|i=s' => \$vcffile,
 			'miss_cutoff|m=s' => \$miss_cutoff,
 			'threads|x=s' => \$threads,
 			'debug|e' => \$debug,
+			'extra|b' => \$extra,
 			'popmap|p=s' => \$popmap,
 			'hap_count|h=s' => \$hap_num_filt,
 			);
 
+
 # Open extra log files for debugging
+
+extra() if $extra;
 
 if ($debug) {
 			
@@ -64,6 +70,7 @@ if ($debug) {
 }
 
 # Some warnings for common input errors
+
 if ($genepop && ! $popmap) {
 	warn "\nGenepop output requires a population map to be specified\n";
 	pod2usage(-verbose => 1) if @ARGV == 0;
@@ -265,7 +272,6 @@ foreach my $ind (@samples) {
 	my $snps_processed = 0;
 	my %fail_codes;
 	foreach my $locus (keys %snps) {
-		
 		my @haplotypes;
 		
 		if (scalar(keys %{$snps{$locus}}) == 1) { # There is only one SNP at this locus - build haplotypes out of the genotype
@@ -273,6 +279,9 @@ foreach my $ind (@samples) {
 			my @genotype = split('', $snps{$locus}{$position[0]}[$indiv_no]);
 			if ($genotype[0] eq '.') {	# missing data
 				$fail_codes{$locus} = 3; # fail code for missing genotype
+				print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
+				$snps_processed += scalar(keys %{$snps{$locus}});
+				$progress->update($snps_processed) unless $threads;
 				next;
 			}
 			my @haps;
@@ -289,7 +298,7 @@ foreach my $ind (@samples) {
 			
 			# Update the progress bar
 		
-			$snps_processed++;
+			$snps_processed += scalar(keys %{$snps{$locus}});
 			$progress->update($snps_processed) unless $threads;
 			
 			print TEMP join("\t", $locus, @uniq_haps), "\n" if $threads;
@@ -302,8 +311,13 @@ foreach my $ind (@samples) {
 				my @genotype = split('', $snps{$locus}{$snp}[$indiv_no]);
 				$miss_bool = 1 if $genotype[0] eq '.';	# missing data
 			}
-			$fail_codes{$locus} = 3 if $miss_bool == 1; # fail code for missing genotype
-			next if $miss_bool == 1;
+			if ($miss_bool == 1) {
+				$fail_codes{$locus} = 3; # fail code for missing genotype
+				print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
+				$snps_processed += scalar(keys %{$snps{$locus}});
+				$progress->update($snps_processed) unless $threads;
+				next;
+			}
 			
 		}
 
@@ -331,7 +345,7 @@ foreach my $ind (@samples) {
 		
 		if ($threads) {
 			print TEMP join("\t", $locus, @haplotypes), "\n" unless $fail_codes{$locus};
-			print FAIL join("\t", $locus, $fail_codes{$locus}), "\n";
+			print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $fail_codes{$locus};
 		}
 		
 		# Update the progress bar
@@ -339,7 +353,9 @@ foreach my $ind (@samples) {
 		$snps_processed += scalar(keys %{$snps{$locus}});
 		$progress->update($snps_processed) unless $threads;
 		
+		
 	}
+	
 	
 	close TEMP if $threads;
 	close LOG if $threads;
@@ -393,7 +409,7 @@ if ($threads) {
 			$failed{$locus}{$ind} = $code;
 		 }
 		 close FAILIN;
-		 unlink "$ind.fail.log";
+		 #unlink "$ind.fail.log";
 	}
 	%haplotypes = %comb_haps;
 	
@@ -448,8 +464,10 @@ if ($imafile) {
 
 # Print out some stats files for the run
 open(STATS, ">", 'stats.out') or die $!;
+print STATS $command, "\n";
 #print STATS Dumper(\%status);
 print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Total_Inds', 'Prop_Haplotyped', 'Status', 'Comment'), "\n";
+my %ind_stats;
 foreach my $locus (@all_loci) {
 	my $comment;
 	if ($failed{$locus}) {
@@ -457,6 +475,8 @@ foreach my $locus (@all_loci) {
 		my %count;
 		foreach my $ind (keys %{$failed{$locus}}) {
 			$count{$failed{$locus}{$ind}}++;
+			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
+			$ind_stats{$ind}{'Total_Failed'}++;
 		}
 		foreach my $code (keys %count) {
 			if ($code == 1) {
@@ -508,6 +528,16 @@ foreach my $locus (@all_loci) {
 	}
 		
 	#print STATS join("\t", $locus, $snps, scalar(@uniq_haps)), "\n";
+}
+
+open(INDOUT, ">", 'ind_stats.out') or die $!;
+print INDOUT join("\t", 'Ind', 'Poss_Paralogs', 'Low_Coverage/Errors', 'Miss_Genotype', 'Total_Failed', 'Total_Loci', 'Prop_Success'), "\n";
+foreach my $ind (@samples) {
+	for (my $i = 1; $i <= 3; $i++) {
+		$ind_stats{$ind}{$i} = 0 unless $ind_stats{$ind}{$i};
+	}
+	$ind_stats{$ind}{'Total_Failed'} = 0 unless $ind_stats{$ind}{'Total_Failed'};
+	print INDOUT join("\t", $ind, $ind_stats{$ind}{1}, $ind_stats{$ind}{2}, $ind_stats{$ind}{3}, $ind_stats{$ind}{'Total_Failed'}, scalar(@all_loci), 1 - ($ind_stats{$ind}{'Total_Failed'}) / scalar(@all_loci)), "\n";
 }
 
 #print join("\t", $stats{'total_loci'}, "($stats{'attempted_loci'})"), "\n";
@@ -1205,7 +1235,36 @@ sub filter_haplotypes {
 	
 }
 
+sub extra {
 
+	use Games::TicTacToe;
+	my $game;
+	print "Would you like to play a game?\n";
+	my $answer = <STDIN>;
+	if ($answer =~ /y/i) {
+		print "Which game would you like to play? (choose 1 or 2)\n";
+		print "(1) Global thermonuclear war\n";
+		print "(2) Tic-Tac-Toe\n";
+		$game = <STDIN>;
+		die "Not a valid option. Maybe later...\n" unless $game == 1 || $game == 2;
+	} else {
+		die "Good choice. Better stick with haplotyping.\n\n";
+	}
+	if ($game == 1) {
+		die "Hmmm... maybe later. Why don't you build some haploypes?\n\n";
+	} elsif ($game == 2) {
+		print "Ok. Let's play...\n";
+	}
+	my $tictactoe = Games::TicTacToe->new();
+	$tictactoe->addPlayer();
+	while (!$tictactoe->isGameOver()) {
+		$tictactoe->play();
+		print $tictactoe->getGameBoard();
+	}
+	die "That was fun. Goodbye.\n\n";
+	
+}
+	
 __END__
 
 =head1 NAME
