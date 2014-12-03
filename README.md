@@ -1,40 +1,15 @@
-rad_haplotyper
-==============
+# rad_haplotyper
+#### A program for building haplotypes from paired-end ddRAD tags
+
+### Synopsis
 
 Usage:
-    perl rad_haplotyper.pl -v <vcffile> -r <reference> [options]
+    perl rad_haplotyper.pl -v *vcffile* -r *reference* [options]
 
-    Options: -v <vcffile> input vcf file
 
-             -r     <reference>             reference genome
-
-             -s     [samples]               optionally specify an individual sample to be haplotyped
-
-             -u     [snp_cutoff]            remove loci with more than a specified number of SNPs
-
-             -m     [miss_cutoff]           cutoff for missing data for loci to be included in the output
-
-             -d     [depth]                 sampling depth used by the algorithm to build haplotypes
-
-             -g     [genepop]               genepop file for population output
-
-             -p     [popmap]                population map for organizing Genepop file
-
-             -t     [tsvfile]               tsv file for linkage map output
-
-             -a     [imafile]               IMa file output
-
-             -p1    [parent1]               first parent in the mapping cross
-
-             -p2    [parent2]               second parent in the mapping cross
-
-             -x     [threads]               number of threads to use for the analysis
-
-             -n                             use indels
-
-             -e                             debug
 
 Options:
+
     -v, --vcffile
             VCF input file
 
@@ -49,8 +24,18 @@ Options:
             Excludes loci with more than the specified number of SNPs
             [Default: No filter]
 
+    -h, --hap_count
+            Excludes loci with more than the specified number of haplotypes
+            relative to number of SNPs. Excluding forces other than mutation
+            (i.e. recombination) the maximum number of haplotypes should be
+            one more than the number of SNPs at the locus. The value
+            provided is the number of haplotypes allowed in excess of the
+            number of SNPs, which allows that mechanisms other than mutation
+            may have influenced the number of haplotypes in the population.
+            [Default: 100]
+
     -x, --threads
-            Run in parallel acress individuals with a specified number of
+            Run in parallel across individuals with a specified number of
             threads
 
     -n, --indels
@@ -58,8 +43,8 @@ Options:
             (tag)
 
     -d, --depth
-            Specify a depth of sampling for building haplotypes [Default:
-            20]
+            Specify a depth of sampling reads for building haplotypes
+            [Default: 20]
 
     -m, --miss_cutoff
             Missing data cutoff for removing loci from the final output. For
@@ -67,17 +52,20 @@ Options:
             95% of individuals, enter 0.95. [Default: 0.9]
 
     -g, --genepop
-            Writes a genepop file using haplotypes
+            Writes a genepop file using haplotypes. Must provide the name of
+            the genepop file.
 
     -a, --ima
-            Writes a IMa file using haplotypes
+            Writes a IMa file using haplotypes. Must provide the name of the
+            IMa file.
 
     -p, --popmap
             Tab-separated file of individuals and their population
             designation, one per line (required for Genepop output)
 
     -t, --tsvfile
-            Writes a tsv file using haplotypes - for mapping crosses only
+            Writes a tsv file using haplotypes - for mapping crosses only.
+            Must provide the name of the tsv file.
 
     -p1, --parent1
             Parent 1 of the mapping cross (must be specified if writing a
@@ -89,3 +77,16 @@ Options:
 
     -e, --debug
             Output extra logs for debugging purposes
+
+### Dependencies
+
+The following perl modules are required for running rad_haplotyper:
+
+Vcf<br />
+Data::Dumper<br />
+Getopt::Long<br />
+Pod::Usage<br />
+Bio::DB::Sam<br />
+List::MoreUtils<br />
+Term::ProgressBar<br />
+Parallel::ForkManager<br />
