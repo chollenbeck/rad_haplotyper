@@ -66,7 +66,7 @@ if ($debug) {
 	open(DUMP6, ">", 'hap_reads.out');
 	open(DUMP7, ">", 'fail_all.log');
 	open(DUMP8, ">", 'haplo_recode.log');
-
+	open(MISC, ">", 'dumper.out');
 }
 
 # Some warnings for common input errors
@@ -176,7 +176,7 @@ while (my $x = $vcf->next_data_array()) {
 		next;
 	}
 
-	if (length($$x[3]) > 1) {	# Skips indels or complex poylmorphisms
+	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex poylmorphisms
 		 $stats{'loci_removed_complex'}++;
 		 $status{$$x[0]} = 'Filtered - Complex polymorphism';
 		 push @complex_loci, $x;
@@ -424,7 +424,7 @@ my %haplo_map = recode_haplotypes(\%haplotypes);
 
 # Filter loci with too much missing data or an excess of haplotypes
 
-my ($filt_hap_ref, $snp_hap_count_ref, $miss_ref) = filter_haplotypes(\%haplotypes, \@samples, $miss_cutoff);
+my ($filt_hap_ref, $snp_hap_count_ref, $miss_ref) = filter_haplotypes(\%haplotypes, \@samples, $miss_cutoff, \@all_loci);
 %haplotypes = %{$filt_hap_ref};
 my %snp_hap_count = %{$snp_hap_count_ref};
 my %missing = %{$miss_ref};
@@ -461,7 +461,7 @@ if ($imafile) {
 	write_ima(\%haplotypes, \%snps, $reference, \@samples, $imafile, $popmap);
 }
 
-
+print MISC Dumper(\%status);
 # Print out some stats files for the run
 open(STATS, ">", 'stats.out') or die $!;
 print STATS $command, "\n";
@@ -1191,13 +1191,15 @@ sub filter_haplotypes {
 	my %haplotypes = %{$_[0]};
 	my @samples = @{$_[1]};
 	my $miss_cutoff = $_[2];
+	my @loci = @{$_[3]};
 	my $num_samps = scalar(@samples);
 	
 	my %filtered_haplotypes;
 	my %snp_hap_counts;
 	my %missing;
 	$stats{'filtered_loci_missing'} = 0;
-	foreach my $locus (keys %haplotypes) {
+	foreach my $locus (@all_loci) {
+		next if $status{$locus};
 		my $count = scalar(keys %{$haplotypes{$locus}});
 		my $prop_non_missing = $count / $num_samps;
 		$missing{$locus} = [$count, $num_samps, $prop_non_missing];
@@ -1284,6 +1286,8 @@ Options:
 	 
 	 -u	[snp_cutoff]		remove loci with more than a specified number of SNPs
 	 
+	 -h	[hap_cutoff]		remove loci with more than a specified number of haplotypes relative to SNPs
+	 
 	 -m	[miss_cutoff]		cutoff for missing data for loci to be included in the output
 	 
 	 -d	[depth]			sampling depth used by the algorithm to build haplotypes
@@ -1327,9 +1331,15 @@ Individual samples to use in the analysis - can be used multiple times for multi
 
 Excludes loci with more than the specified number of SNPs [Default: No filter]
 
+=item B<-h, --hap_count>
+
+Excludes loci with more than the specified number of haplotypes relative to number of SNPs. Excluding forces other than mutation (i.e. recombination) the maximum number of haplotypes should be
+one more than the number of SNPs at the locus. The value provided is the number of haplotypes allowed in excess of the number of SNPs, which allows that mechanisms other than mutation may have
+influenced the number of haplotypes in the population. [Default: 100]
+
 =item B<-x, --threads>
 
-Run in parallel acress individuals with a specified number of threads
+Run in parallel across individuals with a specified number of threads
 
 =item B<-n, --indels>
 
@@ -1337,7 +1347,7 @@ Includes indels that are the only polymorphism at the locus (tag)
 
 =item B<-d, --depth>
 
-Specify a depth of sampling for building haplotypes [Default: 20]
+Specify a depth of sampling reads for building haplotypes [Default: 20]
 
 =item B<-m, --miss_cutoff>
 
@@ -1345,11 +1355,11 @@ Missing data cutoff for removing loci from the final output. For example, to kee
 
 =item B<-g, --genepop>
 
-Writes a genepop file using haplotypes
+Writes a genepop file using haplotypes. Must provide the name of the genepop file.
 
 =item B<-a, --ima>
 
-Writes a IMa file using haplotypes
+Writes a IMa file using haplotypes. Must provide the name of the IMa file.
 
 =item B<-p, --popmap>
 
@@ -1357,7 +1367,7 @@ Tab-separated file of individuals and their population designation, one per line
 
 =item B<-t, --tsvfile>
 
-Writes a tsv file using haplotypes - for mapping crosses only
+Writes a tsv file using haplotypes - for mapping crosses only. Must provide the name of the tsv file.
 
 =item B<-p1, --parent1>
 
