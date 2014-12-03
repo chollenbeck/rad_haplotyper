@@ -466,10 +466,13 @@ print MISC Dumper(\%status);
 open(STATS, ">", 'stats.out') or die $!;
 print STATS $command, "\n";
 #print STATS Dumper(\%status);
-print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Total_Inds', 'Prop_Haplotyped', 'Status', 'Comment'), "\n";
+print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Total_Inds', 'Prop_Haplotyped', 'Status', 'Poss_Paralog', 'Low_Cov/Geno_Err', 'Miss_Geno', 'Comment'), "\n";
 my %ind_stats;
 foreach my $locus (@all_loci) {
-	my $comment;
+	my $poss_paralog = 0;
+	my $low_cov = 0;
+	my $miss_geno = 0;
+	my $comment = '';
 	if ($failed{$locus}) {
 
 		my %count;
@@ -478,19 +481,21 @@ foreach my $locus (@all_loci) {
 			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
 			$ind_stats{$ind}{'Total_Failed'}++;
 		}
+		
 		foreach my $code (keys %count) {
 			if ($code == 1) {
-				$comment = $comment . 'Possible paralog ' . "($count{$code})";
+				$poss_paralog = $count{$code};
 			} elsif ($code == 2) {
-				$comment = $comment . 'Low coverage or miscalled SNPs ' . "($count{$code})";
+				$low_cov = $count{$code};
 			} elsif ($code == 3) {
-				$comment = $comment . 'Missing genotype ' . "($count{$code})";
+				$miss_geno = $count{$code};
 			}
 		}
+		
 	}
 	
 	if ($status{$locus} eq 'PASSED') {
-		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'PASSED', $comment), "\n";
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'PASSED', $poss_paralog, $low_cov, $miss_geno, $comment), "\n";
 	}
 	
 	if ($status{$locus} =~ 'missing') {
@@ -515,16 +520,16 @@ foreach my $locus (@all_loci) {
 		# }
 	
 	
-		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FAILED', $comment), "\n";
+		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FAILED', $poss_paralog, $low_cov, $miss_geno, $comment), "\n";
 	}
 	if ($status{$locus} =~ /complex/i) {
-		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', 'Complex'), "\n";
+		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Complex'), "\n";
 	}
 	if ($status{$locus} =~ /Over SNP cutoff/i) {
-		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', 'Excess SNPs'), "\n";
+		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess SNPs'), "\n";
 	}
 	if ($status{$locus} =~ /Too many haplotypes/i) {
-		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', 'Excess haplotypes'), "\n";
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
 	}
 		
 	#print STATS join("\t", $locus, $snps, scalar(@uniq_haps)), "\n";
