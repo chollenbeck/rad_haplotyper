@@ -9,10 +9,14 @@ use List::MoreUtils qw/uniq firstidx/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
+my $version = '1.0.1';
+
+
 my $command = 'rad_haplotyper ' . join(" ", @ARGV), "\n";
 
 pod2usage(-verbose => 1) if @ARGV == 0;
 
+my $opt_version = '';
 my $vcffile = '';
 my $tsvfile = '';
 my $outfile = '';
@@ -31,8 +35,11 @@ my $popmap = '';
 my $hap_num_filt = 100;
 my $extra = '';
 my @samp_subset;
+my $max_paralog_inds = 1000000;
+my $max_low_cov_inds = 1000000;
 
-GetOptions(	'vcffile|i=s' => \$vcffile,
+GetOptions(	'version' => \$opt_version,
+			'vcffile|v=s' => \$vcffile,
 			'tsvfile|t=s' => \$tsvfile,
 			'genepop|g=s' => \$genepop,
 			'ima|a=s' => \$imafile,
@@ -49,7 +56,15 @@ GetOptions(	'vcffile|i=s' => \$vcffile,
 			'extra|b' => \$extra,
 			'popmap|p=s' => \$popmap,
 			'hap_count|h=s' => \$hap_num_filt,
+			'max_paralog_inds|mp=s' => \$max_paralog_inds,
+			'max_low_cov_inds|ml=s' => \$max_low_cov_inds,
 			);
+			
+
+			
+if ($opt_version) {
+	die "Version ",  $version, "\n";
+}
 
 
 # Open extra log files for debugging
@@ -83,6 +98,10 @@ if ($tsvfile && (! $parent1 || ! $parent2)) {
 
 
 my %stats;
+$stats{'filtered_loci_missing'} = 0;
+$stats{'filtered_loci_paralog'} = 0;
+$stats{'filtered_loci_low_cov'} = 0;
+$stats{'filtered_loci_hapcount'} = 0;
 my %status;
 
 # Count the total number of SNPs and RAD-tags for reporting purposes
@@ -424,12 +443,15 @@ my %haplo_map = recode_haplotypes(\%haplotypes);
 
 # Filter loci with too much missing data or an excess of haplotypes
 
-my ($filt_hap_ref, $snp_hap_count_ref, $miss_ref) = filter_haplotypes(\%haplotypes, \@samples, $miss_cutoff, \@all_loci);
+my ($filt_hap_ref, $snp_hap_count_ref, $miss_ref) = filter_haplotypes(\%haplotypes, \@samples, $miss_cutoff, $max_paralog_inds, $max_low_cov_inds, \@all_loci, \%failed);
 %haplotypes = %{$filt_hap_ref};
 my %snp_hap_count = %{$snp_hap_count_ref};
 my %missing = %{$miss_ref};
 
 print 'Filtered ', $stats{'filtered_loci_missing'}, ' loci below missing data cutoff', "\n";
+print 'Filtered ', $stats{'filtered_loci_paralog'}, ' possible paralogs', "\n";
+print 'Filtered ', $stats{'filtered_loci_low_cov'}, ' loci with low coverage or genotyping errors', "\n";
+print 'Filtered ', $stats{'filtered_loci_hapcount'}, ' loci with an excess of haplotypes', "\n";
 
 # if ($outfile) {
 	# write_phased_vcf(\%haplotypes, \%failed);
@@ -461,7 +483,7 @@ if ($imafile) {
 	write_ima(\%haplotypes, \%snps, $reference, \@samples, $imafile, $popmap);
 }
 
-print MISC Dumper(\%status);
+#print MISC Dumper(\%status);
 # Print out some stats files for the run
 open(STATS, ">", 'stats.out') or die $!;
 print STATS $command, "\n";
@@ -520,7 +542,7 @@ foreach my $locus (@all_loci) {
 		# }
 	
 	
-		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FAILED', $poss_paralog, $low_cov, $miss_geno, $comment), "\n";
+		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Missing data'), "\n";
 	}
 	if ($status{$locus} =~ /complex/i) {
 		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Complex'), "\n";
@@ -530,6 +552,12 @@ foreach my $locus (@all_loci) {
 	}
 	if ($status{$locus} =~ /Too many haplotypes/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
+	}
+	if ($status{$locus} =~ /Paralog/i) {
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
+	}
+	if ($status{$locus} =~ /Too many haplotypes/i) {
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Low Coverage/Genotyping Errors'), "\n";
 	}
 		
 	#print STATS join("\t", $locus, $snps, scalar(@uniq_haps)), "\n";
@@ -1196,7 +1224,11 @@ sub filter_haplotypes {
 	my %haplotypes = %{$_[0]};
 	my @samples = @{$_[1]};
 	my $miss_cutoff = $_[2];
-	my @loci = @{$_[3]};
+	my $max_paralog_inds = $_[3];
+	my $max_low_cov_inds = $_[4];
+	my @loci = @{$_[5]};
+	my %failed = %{$_[6]};
+	
 	my $num_samps = scalar(@samples);
 	
 	my %filtered_haplotypes;
@@ -1204,30 +1236,61 @@ sub filter_haplotypes {
 	my %missing;
 	$stats{'filtered_loci_missing'} = 0;
 	foreach my $locus (@all_loci) {
-		next if $status{$locus};
+	
+		# Count the missing data for the locus
 		my $count = scalar(keys %{$haplotypes{$locus}});
 		my $prop_non_missing = $count / $num_samps;
 		$missing{$locus} = [$count, $num_samps, $prop_non_missing];
-		if ($prop_non_missing >= $miss_cutoff) {
-			
-			# If a haplotype count filter is specified, filter accordingly
-			if ($hap_num_filt) {
-				my @haps;
-				my $snps;
-				foreach my $ind (keys %{$haplotypes{$locus}}) {
-					foreach my $hap (@{$haplotypes{$locus}{$ind}}) {
-						$snps = length($hap) unless $snps;
-						push @haps, $hap;
-					}
-				}
-				my @uniq_haps = uniq @haps;
-				$snp_hap_counts{$locus} = [$snps, scalar(@uniq_haps)];
-				if (scalar(@uniq_haps) - $snps > $hap_num_filt) {
-					$stats{'filtered_loci_hapcount'}++;
-					$status{$locus} = 'Filtered - Too many haplotypes';
-					next;
+		
+		next if $status{$locus}; # Skip the locus if it has already been filtered
+		
+		# Count the number of indivuals failing for each reason
+		
+		my %count;
+		foreach my $ind (keys %{$failed{$locus}}) {
+			$count{$failed{$locus}{$ind}}++;
+			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
+		}
+		
+		# Filter by hard count of individuals failing because of possible paralogs
+		
+		if ($count{'1'} > $max_paralog_inds) {
+			$status{$locus} = 'Filtered - possible paralog';
+			$stats{'filtered_loci_paralog'}++;
+			next;
+		}
+		
+		# Filter by hard count of individuals failing because of low coverage or genotyping errors
+		
+		if ($count{'2'} > $max_low_cov_inds) {
+			$status{$locus} = 'Filtered - low coverage/genotyping error';
+			$stats{'filtered_loci_low_cov'}++;
+			next;
+		}
+		
+		# If a haplotype count filter is specified, filter accordingly
+		
+		if ($hap_num_filt) {
+			my @haps;
+			my $snps;
+			foreach my $ind (keys %{$haplotypes{$locus}}) {
+				foreach my $hap (@{$haplotypes{$locus}{$ind}}) {
+					$snps = length($hap) unless $snps;
+					push @haps, $hap;
 				}
 			}
+			my @uniq_haps = uniq @haps;
+			$snp_hap_counts{$locus} = [$snps, scalar(@uniq_haps)];
+			if (scalar(@uniq_haps) - $snps > $hap_num_filt) {
+				$stats{'filtered_loci_hapcount'}++;
+				$status{$locus} = 'Filtered - Too many haplotypes';
+				next;
+			}
+		}
+		
+		# Filter by amount of missing data last
+		
+		if ($prop_non_missing >= $miss_cutoff) {
 			$filtered_haplotypes{$locus} = $haplotypes{$locus};
 			$status{$locus} = 'PASSED';
 		} else {
@@ -1356,7 +1419,15 @@ Specify a depth of sampling reads for building haplotypes [Default: 20]
 
 =item B<-m, --miss_cutoff>
 
-Missing data cutoff for removing loci from the final output. For example, to keep only loci with successful haplotype builds in 95% of individuals, enter 0.95. [Default: 0.9]
+Proportion of missing data cutoff for removing loci from the final output. For example, to keep only loci with successful haplotype builds in 95% of individuals, enter 0.95. [Default: 0.9]
+
+=item B<-mp, --max_paralog_inds>
+
+Count cutoff for removing loci that are possible paralogs from the final output. The value is the maximum allowable number of individuals with more than the expected number of haplotypes [Default: No filter]
+
+=item B<-ml, --max_low_cov_inds>
+
+Count cutoff for removing loci with low coverage or genotyping errors from the final output. The value is the maximum allowable number of individuals with less than the expected number of haplotypes [Default: No filter]
 
 =item B<-g, --genepop>
 
