@@ -47,9 +47,22 @@ Options:
             [Default: 20]
 
     -m, --miss_cutoff
-            Missing data cutoff for removing loci from the final output. For
-            example, to keep only loci with successful haplotype builds in
-            95% of individuals, enter 0.95. [Default: 0.9]
+            Proportion of missing data cutoff for removing loci from the
+            final output. For example, to keep only loci with successful
+            haplotype builds in 95% of individuals, enter 0.95. [Default:
+            0.9]
+
+    -mp, --max_paralog_inds
+            Count cutoff for removing loci that are possible paralogs from
+            the final output. The value is the maximum allowable number of
+            individuals with more than the expected number of haplotypes
+            [Default: No filter]
+
+    -ml, --max_low_cov_inds
+            Count cutoff for removing loci with low coverage or genotyping
+            errors from the final output. The value is the maximum allowable
+            number of individuals with less than the expected number of
+            haplotypes [Default: No filter]
 
     -g, --genepop
             Writes a genepop file using haplotypes. Must provide the name of
@@ -77,6 +90,7 @@ Options:
 
     -e, --debug
             Output extra logs for debugging purposes
+
 
 ### Dependencies
 
