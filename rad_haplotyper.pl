@@ -6,10 +6,11 @@ use Getopt::Long;
 use Pod::Usage;
 use Bio::DB::Sam;
 use List::MoreUtils qw/uniq firstidx/;
+use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.1';
+my $version = '1.0.2';
 
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV), "\n";
@@ -553,10 +554,10 @@ foreach my $locus (@all_loci) {
 	if ($status{$locus} =~ /Too many haplotypes/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
 	}
-	if ($status{$locus} =~ /Paralog/i) {
+	if ($status{$locus} =~ /paralog/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
 	}
-	if ($status{$locus} =~ /Too many haplotypes/i) {
+	if ($status{$locus} =~ /low coverage/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Low Coverage/Genotyping Errors'), "\n";
 	}
 		
@@ -1051,9 +1052,20 @@ sub build_haplotypes {
 	
 	my @reads = keys %all_reads;
 	#print DUMP6 join("\n", @reads);
+	
+	# Shuffled list of indexes
+	my @shuffled_indexes = shuffle(0..$#reads);
+
+	# Pick a subset of indexes
+	my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];  
+
+	# Sample reads from @reads
+	my @chosen = @reads[ @pick_indexes ];
+	
+	
 	my %reads;
-	for (my $i = 0; $i < scalar(@reads); $i++) {
-		last if $i > $depth - 1;
+	
+	for (my $i = 0; $i < scalar(@chosen); $i++) {
 		$reads{$reads[$i]} = [];
 		
 	}
@@ -1356,7 +1368,11 @@ Options:
 	 
 	 -h	[hap_cutoff]		remove loci with more than a specified number of haplotypes relative to SNPs
 	 
-	 -m	[miss_cutoff]		cutoff for missing data for loci to be included in the output
+	 -m	[miss_cutoff]		cutoff for proportion of missing data for loci to be included in the output
+	 
+	 -mp	[max_paralog_inds]		cutoff for excluding possible paralogs
+	 
+	 -ml	[max_low_cov_inds]		cutoff for excluding loci with low coverage or genotyping errors
 	 
 	 -d	[depth]			sampling depth used by the algorithm to build haplotypes
 	 
