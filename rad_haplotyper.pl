@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/perl -w
 use strict;
 use Vcf;
 use Data::Dumper;
@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.2';
+my $version = '1.0.3';
 
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV), "\n";
@@ -66,7 +66,6 @@ GetOptions(	'version' => \$opt_version,
 if ($opt_version) {
 	die "Version ",  $version, "\n";
 }
-
 
 # Open extra log files for debugging
 
@@ -706,6 +705,12 @@ sub write_genepop {
 			print GEN "\n";
 		}
 	}
+	open(REC, ">", 'codes.' . $genepop) or die $!;
+	foreach my $locus (@loci) {
+		my $code_str = join(",", map { "$_:" . sprintf('%03s',$haplo_map{$locus}{$_}) } sort { $haplo_map{$locus}{$a} <=> $haplo_map{$locus}{$b} } keys %{$haplo_map{$locus}});
+		print REC join("\t", $locus, $code_str), "\n";
+	}
+	
 }
 
 sub write_tsv {
@@ -1011,6 +1016,8 @@ sub recode_haplotypes {
 		
 			
 	}
+
+
 	print DUMP8 Dumper(\%haplo_map) if $debug;
 	return %haplo_map;
 }
@@ -1333,7 +1340,7 @@ sub extra {
 		die "Good choice. Better stick with haplotyping.\n\n";
 	}
 	if ($game == 1) {
-		die "Hmmm... maybe later. Why don't you build some haploypes?\n\n";
+		die "Hmmm... maybe later. Why don't you build some haplotypes?\n\n";
 	} elsif ($game == 2) {
 		print "Ok. Let's play...\n";
 	}
