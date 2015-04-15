@@ -13,7 +13,7 @@ use Parallel::ForkManager;
 my $version = '1.0.3';
 
 
-my $command = 'rad_haplotyper ' . join(" ", @ARGV), "\n";
+my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
 pod2usage(-verbose => 1) if @ARGV == 0;
 
@@ -81,7 +81,6 @@ if ($debug) {
 	open(DUMP6, ">", 'hap_reads.out');
 	open(DUMP7, ">", 'fail_all.log');
 	open(DUMP8, ">", 'haplo_recode.log');
-	open(MISC, ">", 'dumper.out');
 }
 
 # Some warnings for common input errors
@@ -483,7 +482,7 @@ if ($imafile) {
 	write_ima(\%haplotypes, \%snps, $reference, \@samples, $imafile, $popmap);
 }
 
-#print MISC Dumper(\%status);
+
 # Print out some stats files for the run
 open(STATS, ">", 'stats.out') or die $!;
 print STATS $command, "\n";
@@ -947,7 +946,7 @@ sub write_ima {
 	<IMIN>;
 	my $num_loci = <IMIN>;
 	chomp($num_loci);
-	my $locus;
+	$locus = '';
 	my %file;
 	my %length;
 	while(<IMIN>) {
