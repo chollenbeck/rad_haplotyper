@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.3';
+my $version = '1.0.4';
 
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
@@ -75,13 +75,15 @@ if ($debug) {
 			
 	open(ALLELES, ">", 'allele_dump.out');
 	open(HAPS, ">", 'haplo_dump.out');
-	open(LOG, ">", 'hap_log.out') unless $threads;
 	open(SNPS, ">", 'snp_dump.out');
 	open(DUMP5, ">", 'failed.out');
 	open(DUMP6, ">", 'hap_reads.out');
 	open(DUMP7, ">", 'fail_all.log');
 	open(DUMP8, ">", 'haplo_recode.log');
+	open(LOG, ">", 'hap_log.out') unless $threads;
 }
+
+
 
 # Some warnings for common input errors
 
@@ -101,6 +103,9 @@ $stats{'filtered_loci_missing'} = 0;
 $stats{'filtered_loci_paralog'} = 0;
 $stats{'filtered_loci_low_cov'} = 0;
 $stats{'filtered_loci_hapcount'} = 0;
+$stats{'attempted_loci'} = 0;
+$stats{'attempted_snps'} = 0;
+$stats{'attempted_indels'} = 0;
 my %status;
 
 # Count the total number of SNPs and RAD-tags for reporting purposes
@@ -183,7 +188,7 @@ my (@samples) = $vcf->get_samples();
 
 my %snps;
 my %alleles;
-my $prev_id;
+my $prev_id = '';
 my $prev_position;
 my @complex_loci;
 while (my $x = $vcf->next_data_array()) {
@@ -194,7 +199,7 @@ while (my $x = $vcf->next_data_array()) {
 		next;
 	}
 
-	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex poylmorphisms
+	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex polymorphisms
 		 $stats{'loci_removed_complex'}++;
 		 $status{$$x[0]} = 'Filtered - Complex polymorphism';
 		 push @complex_loci, $x;
@@ -276,7 +281,7 @@ my $pm = Parallel::ForkManager->new($threads) if $threads;
 
 foreach my $ind (@samples) {
 
-	if ($threads) {
+	if ($threads && $debug) {
 		$pm->start and next;
 		open(TEMP, ">", "$ind.haps");
 		open(LOG, ">", "$ind.haps.log");
@@ -284,7 +289,7 @@ foreach my $ind (@samples) {
 	}	
 	
 	my $indiv_no = $indiv_index{$ind};
-	print LOG "---------$ind----------\n";
+	print LOG "---------$ind----------\n" if $debug;
 	print "Building haplotypes for $ind\n";
 	my $progress = Term::ProgressBar->new($stats{'attempted_snps'} + $stats{'attempted_indels'}) unless $threads;
 	my $snps_processed = 0;
@@ -311,7 +316,7 @@ foreach my $ind (@samples) {
 			}
 			my @uniq_haps = uniq(@haps);
 			$haplotypes{$locus}{$ind} = \@uniq_haps;
-			print LOG $locus, ": Single SNP, Looks good\n";
+			print LOG $locus, ": Single SNP, Looks good\n" if $debug;
 			
 			
 			# Update the progress bar
@@ -345,13 +350,13 @@ foreach my $ind (@samples) {
 		
 		
 		if ($failed) {
-			print LOG "Failed, trying to recover...\n";
+			print LOG "Failed, trying to recover...\n" if $debug;
 			my ($hap_ref, $failed2) = build_haplotypes($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100);
 			if ($failed2) {
-				print LOG "Failed again...\n";
+				print LOG "Failed again...\n" if $debug;
 				$fail_codes{$locus} = $failed2;
 			} else {
-				print LOG "Fixed... huzzah!\n";
+				print LOG "Fixed... huzzah!\n" if $debug;
 				@haplotypes = @{$hap_ref};
 				$haplotypes{$locus}{$ind} = \@haplotypes;
 			}
@@ -408,7 +413,7 @@ $pm->wait_all_children if $threads;
 
 if ($threads) {
 
-	#`cat *.haps.log > haps.log`;
+	`cat *.haps.log > haps.log`;
 	my %comb_haps;
 	foreach my $ind (@samples) {
 		open(TEMPIN, "<", "$ind.haps") or die $!;
@@ -427,7 +432,7 @@ if ($threads) {
 			$failed{$locus}{$ind} = $code;
 		 }
 		 close FAILIN;
-		 #unlink "$ind.fail.log";
+		 unlink "$ind.fail.log";
 	}
 	%haplotypes = %comb_haps;
 	
@@ -1037,7 +1042,7 @@ sub build_haplotypes {
 						 -fasta => $reference,
 	);
 	
-	print DUMP6 "Attempting Locus: ", $locus, "\n";
+	print DUMP6 "Attempting Locus: ", $locus, "\n" if $debug;
 	
 	my @positions;
 	foreach my $snp (sort {$a <=> $b} keys %{$snps{$locus}}) {
@@ -1056,17 +1061,23 @@ sub build_haplotypes {
 	);
 	#print DUMP6 Dumper(\%all_reads), "\n";
 	
+	
 	my @reads = keys %all_reads;
 	#print DUMP6 join("\n", @reads);
 	
-	# Shuffled list of indexes
-	my @shuffled_indexes = shuffle(0..$#reads);
+	my @chosen;
+	if (scalar(@reads) > $depth) {
+		# Shuffled list of indexes
+		my @shuffled_indexes = shuffle(0..$#reads);
 
-	# Pick a subset of indexes
-	my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];  
+		# Pick a subset of indexes
+		my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];  
 
-	# Sample reads from @reads
-	my @chosen = @reads[ @pick_indexes ];
+		# Sample reads from @reads
+		my @chosen = @reads[ @pick_indexes ];
+	} else {
+		@chosen = @reads;
+	}
 	
 	
 	my %reads;
@@ -1076,7 +1087,7 @@ sub build_haplotypes {
 		
 	}
 	
-	print DUMP6 Dumper(\%reads), "\n";
+	print DUMP6 Dumper(\%reads), "\n" if $debug;
 	
 	$sam->fast_pileup($locus, sub {
 		
@@ -1180,17 +1191,17 @@ sub build_haplotypes {
 	my %hap_counts;
 	my $total_haps;
 	my $failed;
-	print LOG $locus, ": Possible Haps:\n";
-	print LOG Dumper(\@poss_haplotypes);
-	print LOG $locus, ": Observed Haps:\n";
-	print LOG Dumper(\@obs_haplotypes);
-	print LOG $locus, ": Unique Observed Haps:\n";
-	print LOG Dumper(\@uniq_obs_haplotypes);
+	print LOG $locus, ": Possible Haps:\n" if $debug;
+	print LOG Dumper(\@poss_haplotypes) if $debug;
+	print LOG $locus, ": Observed Haps:\n" if $debug;
+	print LOG Dumper(\@obs_haplotypes) if $debug;
+	print LOG $locus, ": Unique Observed Haps:\n" if $debug;
+	print LOG Dumper(\@uniq_obs_haplotypes) if $debug;
 	if ($no_exp_haplotypes == scalar(@uniq_obs_haplotypes)) { # The correct number of haplotypes is observed
 		@new_haplotypes = @uniq_obs_haplotypes;
-		print LOG $locus, ": Looks good\n";
+		print LOG $locus, ": Looks good\n" if $debug;
 	} elsif ($no_exp_haplotypes < scalar(@uniq_obs_haplotypes)) { # Too many haplotypes observed at the locus
-		print LOG $locus, ": Problem- trying to fix...\n";
+		print LOG $locus, ": Problem- trying to fix...\n" if $debug;
 		$hap_counts{$_}++ for @obs_haplotypes;
 		$total_haps++;
 		my %keep_list;
@@ -1203,13 +1214,13 @@ sub build_haplotypes {
 			}
 		}
 		@uniq_obs_haplotypes = keys %keep_list;
-		print LOG $locus, ": Corrected Unique Observed Haps:\n";
-		print LOG Dumper(\@uniq_obs_haplotypes);
+		print LOG $locus, ": Corrected Unique Observed Haps:\n" if $debug;
+		print LOG Dumper(\@uniq_obs_haplotypes) if $debug;
 		if ($no_exp_haplotypes == scalar(@uniq_obs_haplotypes)) {
 			@new_haplotypes = @uniq_obs_haplotypes;
-			print LOG $locus, ": Problem fixed\n";
+			print LOG $locus, ": Problem fixed\n" if $debug;
 		} else {
-			print LOG $locus, ": Unable to rescue\n";
+			print LOG $locus, ": Unable to rescue\n" if $debug;
 			$failed = 1;
 		}
 		my @keys = sort { $hap_counts{$a} <=> $hap_counts{$b} } keys(%hap_counts);
@@ -1217,7 +1228,7 @@ sub build_haplotypes {
 			
 	} else { # Too few haplotypes observed at the locus
 		@new_haplotypes = @uniq_obs_haplotypes;
-		print LOG $locus, ": Unable to rescue\n";
+		print LOG $locus, ": Unable to rescue\n" if $debug;
 		$failed = 2;
 	}
 	
@@ -1226,11 +1237,11 @@ sub build_haplotypes {
 	if ($failed) {
 		my %hap_counts;
 		$hap_counts{$_}++ for @obs_haplotypes;
-		print LOG $locus, "\n";
-		print LOG Dumper(\%hap_counts);
+		print LOG $locus, "\n" if $debug;
+		print LOG Dumper(\%hap_counts) if $debug;
 
-		print LOG "Expected haplotypes: $no_exp_haplotypes\n";
-		print LOG "Observed haplotypes: ", scalar(@uniq_obs_haplotypes), "\n";
+		print LOG "Expected haplotypes: $no_exp_haplotypes\n" if $debug;
+		print LOG "Observed haplotypes: ", scalar(@uniq_obs_haplotypes), "\n" if $debug;
 	}
 
 	return(\@new_haplotypes, $failed);
@@ -1249,11 +1260,11 @@ sub filter_haplotypes {
 	
 	my $num_samps = scalar(@samples);
 	
-	my %filtered_haplotypes;
+	my %passing_haplotypes;
 	my %snp_hap_counts;
 	my %missing;
 	$stats{'filtered_loci_missing'} = 0;
-	foreach my $locus (@all_loci) {
+	foreach my $locus (@loci) {
 	
 		# Count the missing data for the locus
 		my $count = scalar(keys %{$haplotypes{$locus}});
@@ -1265,6 +1276,8 @@ sub filter_haplotypes {
 		# Count the number of indivuals failing for each reason
 		
 		my %count;
+		$count{'1'} = 0;
+		$count{'2'} = 0;
 		foreach my $ind (keys %{$failed{$locus}}) {
 			$count{$failed{$locus}{$ind}}++;
 			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
@@ -1288,18 +1301,18 @@ sub filter_haplotypes {
 		
 		# If a haplotype count filter is specified, filter accordingly
 		
-		if ($hap_num_filt) {
+		if ($hap_num_filt && $haplotypes{$locus}) {
 			my @haps;
-			my $snps;
+			my $snps = 0;
 			foreach my $ind (keys %{$haplotypes{$locus}}) {
 				foreach my $hap (@{$haplotypes{$locus}{$ind}}) {
-					$snps = length($hap) unless $snps;
+					$snps = length($hap);
 					push @haps, $hap;
 				}
 			}
 			my @uniq_haps = uniq @haps;
 			$snp_hap_counts{$locus} = [$snps, scalar(@uniq_haps)];
-			if (scalar(@uniq_haps) - $snps > $hap_num_filt) {
+			if ((scalar(@uniq_haps) - $snps) > $hap_num_filt) {
 				$stats{'filtered_loci_hapcount'}++;
 				$status{$locus} = 'Filtered - Too many haplotypes';
 				next;
@@ -1309,7 +1322,7 @@ sub filter_haplotypes {
 		# Filter by amount of missing data last
 		
 		if ($prop_non_missing >= $miss_cutoff) {
-			$filtered_haplotypes{$locus} = $haplotypes{$locus};
+			$passing_haplotypes{$locus} = $haplotypes{$locus};
 			$status{$locus} = 'PASSED';
 		} else {
 			$stats{'filtered_loci_missing'}++;
@@ -1319,7 +1332,7 @@ sub filter_haplotypes {
 	
 	
 	
-	return (\%filtered_haplotypes, \%snp_hap_counts, \%missing);
+	return (\%passing_haplotypes, \%snp_hap_counts, \%missing);
 	
 }
 
