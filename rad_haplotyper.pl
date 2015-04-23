@@ -558,7 +558,7 @@ foreach my $locus (@all_loci) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
 	}
 	if ($status{$locus} =~ /paralog/i) {
-		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
+		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
 	}
 	if ($status{$locus} =~ /low coverage/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Low Coverage/Genotyping Errors'), "\n";
