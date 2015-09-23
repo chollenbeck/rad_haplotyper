@@ -10,8 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.3';
-
+my $version = '1.0.5';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -22,6 +21,7 @@ my $vcffile = '';
 my $tsvfile = '';
 my $outfile = '';
 my $genepop = '';
+my $vcfout = '';
 my $imafile = '';
 my $parent1 = '';
 my $parent2 = '';
@@ -34,7 +34,6 @@ my $threads = '';
 my $miss_cutoff = 0.9;
 my $popmap = '';
 my $hap_num_filt = 100;
-my $extra = '';
 my @samp_subset;
 my $max_paralog_inds = 1000000;
 my $max_low_cov_inds = 1000000;
@@ -43,6 +42,7 @@ GetOptions(	'version' => \$opt_version,
 			'vcffile|v=s' => \$vcffile,
 			'tsvfile|t=s' => \$tsvfile,
 			'genepop|g=s' => \$genepop,
+			'vcfout|o=s' => \$vcfout,
 			'ima|a=s' => \$imafile,
 			'cutoff|u=s' => \$loc_cutoff,
 			'reference|r=s' => \$reference,
@@ -54,34 +54,30 @@ GetOptions(	'version' => \$opt_version,
 			'miss_cutoff|m=s' => \$miss_cutoff,
 			'threads|x=s' => \$threads,
 			'debug|e' => \$debug,
-			'extra|b' => \$extra,
 			'popmap|p=s' => \$popmap,
 			'hap_count|h=s' => \$hap_num_filt,
 			'max_paralog_inds|mp=s' => \$max_paralog_inds,
 			'max_low_cov_inds|ml=s' => \$max_low_cov_inds,
 			);
-			
 
-			
+
+
 if ($opt_version) {
 	die "Version ",  $version, "\n";
 }
 
 # Open extra log files for debugging
 
-extra() if $extra;
-
 if ($debug) {
-			
+
 	open(ALLELES, ">", 'allele_dump.out');
 	open(HAPS, ">", 'haplo_dump.out');
-	open(LOG, ">", 'hap_log.out') unless $threads;
 	open(SNPS, ">", 'snp_dump.out');
-	open(DUMP5, ">", 'failed.out');
-	open(DUMP6, ">", 'hap_reads.out');
-	open(DUMP7, ">", 'fail_all.log');
-	open(DUMP8, ">", 'haplo_recode.log');
+	open(READS, ">", 'hap_reads.out');
+	open(FAIL, ">", 'fail.log');
+	open(LOG, ">", 'hap_log.out') unless $threads;
 }
+
 
 # Some warnings for common input errors
 
@@ -101,6 +97,9 @@ $stats{'filtered_loci_missing'} = 0;
 $stats{'filtered_loci_paralog'} = 0;
 $stats{'filtered_loci_low_cov'} = 0;
 $stats{'filtered_loci_hapcount'} = 0;
+$stats{'attempted_loci'} = 0;
+$stats{'attempted_snps'} = 0;
+$stats{'attempted_indels'} = 0;
 my %status;
 
 # Count the total number of SNPs and RAD-tags for reporting purposes
@@ -160,12 +159,12 @@ if ($loc_cutoff) {
 		$status{$last_id} = 'Filtered - Over SNP cutoff';
 	}
 
-	
+
 	$stats{'loci_removed_over_thresh'} = $loc_removed;
 	$stats{'snps_removed_over_thresh'} = $snps_removed;
-	
+
 	print "Removed $loc_removed loci ($snps_removed SNPs) with more than $loc_cutoff SNPs at a locus\n";
-	
+
 	close VCF;
 	close VCFTEMP;
 
@@ -183,18 +182,18 @@ my (@samples) = $vcf->get_samples();
 
 my %snps;
 my %alleles;
-my $prev_id;
+my $prev_id = '';
 my $prev_position;
 my @complex_loci;
 while (my $x = $vcf->next_data_array()) {
 
 	# Skip if either the reference or alternative bases are an 'N'
-	
+
 	if ($$x[3] eq 'N' || $$x[4] eq 'N') {
 		next;
 	}
 
-	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex poylmorphisms
+	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex polymorphisms
 		 $stats{'loci_removed_complex'}++;
 		 $status{$$x[0]} = 'Filtered - Complex polymorphism';
 		 push @complex_loci, $x;
@@ -207,8 +206,8 @@ while (my $x = $vcf->next_data_array()) {
 		$geno =~ s/[\/\|]//;
 		push @genotypes, $geno;
 	}
-		
-	if ($id ne $prev_id) { # New locus	
+
+	if ($id ne $prev_id) { # New locus
 		$snps{$id} = { $$x[1] => \@genotypes };
 		my @alleles = ($$x[3], split(',', $$x[4]));
 		$alleles{$id} = { $$x[1] => \@alleles };
@@ -222,7 +221,7 @@ while (my $x = $vcf->next_data_array()) {
 		$alleles{$id}{$$x[1]} = \@alleles;
 		$stats{'attempted_snps'}++;
 	}
-	
+
 	$alleles{$id}{$$x[1]} =~ s/,//;
 	$prev_id = $id;
 	$prev_position = $$x[1];
@@ -232,7 +231,7 @@ $vcf->close;
 
 # Include indels if they are the only polymorphism at the locus (and if specified at the command line)
 
-if ($indels) {	
+if ($indels) {
 	foreach my $locus (@complex_loci) {
 		next if $snps{$$locus[0]};
 		my $id = $$locus[0];
@@ -254,7 +253,7 @@ if ($indels) {
 print ALLELES Dumper(\%alleles) if $debug;
 print SNPS Dumper(\%snps) if $debug;
 
-# Index the individuals before taking the subset to keep track of their positions in the data structures 
+# Index the individuals before taking the subset to keep track of their positions in the data structures
 
 my %indiv_index;
 my $ind_counter = 0;
@@ -279,25 +278,27 @@ foreach my $ind (@samples) {
 	if ($threads) {
 		$pm->start and next;
 		open(TEMP, ">", "$ind.haps");
-		open(LOG, ">", "$ind.haps.log");
-		open(FAIL, ">", "$ind.fail.log");
-	}	
-	
+		open(IFAIL, ">", "$ind.fail.log");
+		if ($debug) {
+			open(LOG, ">", "$ind.haps.log");
+
+		}
+	}
+
 	my $indiv_no = $indiv_index{$ind};
-	print LOG "---------$ind----------\n";
+	print LOG "---------$ind----------\n" if $debug;
 	print "Building haplotypes for $ind\n";
 	my $progress = Term::ProgressBar->new($stats{'attempted_snps'} + $stats{'attempted_indels'}) unless $threads;
 	my $snps_processed = 0;
 	my %fail_codes;
 	foreach my $locus (keys %snps) {
 		my @haplotypes;
-		
+
 		if (scalar(keys %{$snps{$locus}}) == 1) { # There is only one SNP at this locus - build haplotypes out of the genotype
 			my @position = keys %{$snps{$locus}};
 			my @genotype = split('', $snps{$locus}{$position[0]}[$indiv_no]);
 			if ($genotype[0] eq '.') {	# missing data
 				$fail_codes{$locus} = 3; # fail code for missing genotype
-				print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
 				$snps_processed += scalar(keys %{$snps{$locus}});
 				$progress->update($snps_processed) unless $threads;
 				next;
@@ -305,22 +306,20 @@ foreach my $ind (@samples) {
 			my @haps;
 			foreach my $bin_base (@genotype) {
 				my $base = $alleles{$locus}{$position[0]}[$bin_base];
-				#print LOG $bin_base, "\n" if $locus eq 'E28365_L120';
-				#print LOG $base, "\n" if $locus eq 'E28365_L120';
 				push @haps, $base;
 			}
 			my @uniq_haps = uniq(@haps);
 			$haplotypes{$locus}{$ind} = \@uniq_haps;
-			print LOG $locus, ": Single SNP, Looks good\n";
-			
-			
+			print LOG $locus, ": Single SNP, Looks good\n" if $debug;
+
+
 			# Update the progress bar
-		
+
 			$snps_processed += scalar(keys %{$snps{$locus}});
 			$progress->update($snps_processed) unless $threads;
-			
+
 			print TEMP join("\t", $locus, @uniq_haps), "\n" if $threads;
-			
+
 			next;
 		} else { # There is more than one SNP at the locus
 			my $miss_bool = 0;
@@ -331,74 +330,68 @@ foreach my $ind (@samples) {
 			}
 			if ($miss_bool == 1) {
 				$fail_codes{$locus} = 3; # fail code for missing genotype
-				print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
 				$snps_processed += scalar(keys %{$snps{$locus}});
 				$progress->update($snps_processed) unless $threads;
 				next;
 			}
-			
+
 		}
 
 
 		my ($hap_ref, $failed) = build_haplotypes($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth);
 		@haplotypes = @{$hap_ref};
-		
-		
+
+
 		if ($failed) {
-			print LOG "Failed, trying to recover...\n";
+			print LOG "Failed, trying to recover...\n" if $debug;
 			my ($hap_ref, $failed2) = build_haplotypes($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100);
 			if ($failed2) {
-				print LOG "Failed again...\n";
+				print LOG "Failed again...\n" if $debug;
 				$fail_codes{$locus} = $failed2;
 			} else {
-				print LOG "Fixed... huzzah!\n";
+				print LOG "Fixed... huzzah!\n" if $debug;
 				@haplotypes = @{$hap_ref};
 				$haplotypes{$locus}{$ind} = \@haplotypes;
 			}
 		} else {
 			$haplotypes{$locus}{$ind} = \@haplotypes;
 		}
-		
+
 		# Print to a temporary file if processing in parallel
-		
+
 		if ($threads) {
 			print TEMP join("\t", $locus, @haplotypes), "\n" unless $fail_codes{$locus};
-			print FAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $fail_codes{$locus};
+			print IFAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $fail_codes{$locus};
 		}
-		
+
 		# Update the progress bar
-		
+
 		$snps_processed += scalar(keys %{$snps{$locus}});
 		$progress->update($snps_processed) unless $threads;
-		
-		
+
+
 	}
-	
-	
+
 	close TEMP if $threads;
 	close LOG if $threads;
-	close FAIL if $threads;
-	
-	# Add the list of failed loci for each individual to the '%failed' hash
-	
-	unless ($threads) {
+	close IFAIL if $threads;
+
+	#$failed{$ind} = \@failed_loci;
+
+	my $success_loci = $stats{'attempted_loci'} - scalar(keys %fail_codes);
+
+	if (! $threads) {
+
+		# Add the list of failed loci for each individual to the '%failed' hash
 		foreach my $locus (keys %fail_codes) {
 			$failed{$locus}{$ind} = $fail_codes{$locus};
 		}
-	}
-	 
-	#$failed{$ind} = \@failed_loci;
-	 
-	my $success_loci = $stats{'attempted_loci'} - scalar(keys %fail_codes);
-	
-	if (! $threads) {
+
 		print "Successfully haplotyped loci: ", $success_loci, "\n";
 		print "Failed loci: ", scalar(keys %fail_codes), "\n";
 		print "Collapsed $stats{'attempted_snps'} SNPs into ", $success_loci, ' haplotypes', "\n";
 	}
 
-	print DUMP5 Dumper(\%fail_codes) if $debug;
-	
 	$pm->finish if $threads;
 }
 
@@ -408,9 +401,14 @@ $pm->wait_all_children if $threads;
 
 if ($threads) {
 
-	#`cat *.haps.log > haps.log`;
+	if ($debug) {
+		open(LOGOUT, ">", 'hap_log.out') or die $!;
+	}
+
 	my %comb_haps;
 	foreach my $ind (@samples) {
+
+		# Read the individual haplotype logs into a common data structure (%comb_haps)
 		open(TEMPIN, "<", "$ind.haps") or die $!;
 		while(<TEMPIN>) {
 			my ($locus, @haps) = split;
@@ -418,8 +416,8 @@ if ($threads) {
 		}
 		close TEMPIN;
 		unlink "$ind.haps";
-		#unlink "$ind.haps.log";
-		
+
+		# Read the individual fail logs into the %failed hash
 		open(FAILIN, "<", "$ind.fail.log") or die $!;
 		while(<FAILIN>) {
 			chomp;
@@ -427,18 +425,38 @@ if ($threads) {
 			$failed{$locus}{$ind} = $code;
 		 }
 		 close FAILIN;
-		 #unlink "$ind.fail.log";
+		 unlink "$ind.fail.log";
+
+		 if ($debug) {
+
+ 			# Print the individual log files to a single file
+ 			open(LOGIN, "<", "$ind.haps.log") or die $!;
+ 			while(<LOGIN>) {
+ 				print LOGOUT $_;
+ 			}
+ 			close LOGIN;
+ 			unlink "$ind.haps.log";
+ 		}
+
 	}
 	%haplotypes = %comb_haps;
-	
+
 }
 
-print HAPS Dumper(\%haplotypes) if $debug;
-print DUMP7 Dumper(\%failed) if $debug;
+# Print some log files if running in debug mode
 
-# Code haplotypes as numbers for genepop output
+if ($debug) {
 
-my %haplo_map = recode_haplotypes(\%haplotypes);
+	# Print the haplotypes observed for each individual
+	print HAPS Dumper(\%haplotypes);
+
+	#  Print a file with all failed individuals
+	foreach my $locus (keys %failed) {
+		foreach my $ind (keys %{$failed{$locus}}) {
+			print FAIL join("\t", $locus, $ind, $failed{$locus}{$ind}), "\n";
+		}
+	}
+}
 
 # Filter loci with too much missing data or an excess of haplotypes
 
@@ -452,9 +470,9 @@ print 'Filtered ', $stats{'filtered_loci_paralog'}, ' possible paralogs', "\n";
 print 'Filtered ', $stats{'filtered_loci_low_cov'}, ' loci with low coverage or genotyping errors', "\n";
 print 'Filtered ', $stats{'filtered_loci_hapcount'}, ' loci with an excess of haplotypes', "\n";
 
-# if ($outfile) {
-	# write_phased_vcf(\%haplotypes, \%failed);
-# }
+if ($vcfout) {
+	write_vcf(\%haplotypes, \%failed);
+}
 
 # Write output files if specified on the command line
 
@@ -465,8 +483,13 @@ if ($tsvfile) {
 
 if ($genepop) {
 	print "Writing Genepop file: $genepop\n";
+
+	# Code haplotypes as numbers for genepop output
+
+	my %haplo_map = recode_haplotypes(\%haplotypes);
+
 	write_genepop(\%haplotypes, \%haplo_map, $genepop, $popmap);
-	
+
 	open(LOCI, '>', 'hap_loci.txt') or die $!;
 	foreach my $locus (keys %haplotypes) {
 		my @positions = sort {$a <=> $b} keys %{$snps{$locus}};
@@ -475,6 +498,11 @@ if ($genepop) {
 		}
 	}
 	close LOCI;
+	if ($debug) {
+		open(RECODE, ">", 'haplo_recode.log');
+		print RECODE Dumper(\%haplo_map);
+		close RECODE;
+	}
 }
 
 if ($imafile) {
@@ -502,7 +530,7 @@ foreach my $locus (@all_loci) {
 			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
 			$ind_stats{$ind}{'Total_Failed'}++;
 		}
-		
+
 		foreach my $code (keys %count) {
 			if ($code == 1) {
 				$poss_paralog = $count{$code};
@@ -512,15 +540,15 @@ foreach my $locus (@all_loci) {
 				$miss_geno = $count{$code};
 			}
 		}
-		
+
 	}
-	
+
 	if ($status{$locus} eq 'PASSED') {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'PASSED', $poss_paralog, $low_cov, $miss_geno, $comment), "\n";
 	}
-	
+
 	if ($status{$locus} =~ 'missing') {
-		
+
 		# Figure out the most likely cause of failure by counting the fail codes for each individual
 		# my %count;
 		# foreach my $ind (keys %{$failed{$locus}}) {
@@ -539,8 +567,8 @@ foreach my $locus (@all_loci) {
 		# } else {
 			# $reason = '-';
 		# }
-	
-	
+
+
 		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Missing data'), "\n";
 	}
 	if ($status{$locus} =~ /complex/i) {
@@ -553,12 +581,12 @@ foreach my $locus (@all_loci) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
 	}
 	if ($status{$locus} =~ /paralog/i) {
-		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
+		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
 	}
 	if ($status{$locus} =~ /low coverage/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Low Coverage/Genotyping Errors'), "\n";
 	}
-		
+
 	#print STATS join("\t", $locus, $snps, scalar(@uniq_haps)), "\n";
 }
 
@@ -589,7 +617,7 @@ sub write_phased_vcf { # Not currently supported
 	my %haplotypes = %{$_[0]};
 	my %failed = %{$_[1]};
 	open(IN, "<", $vcffile) or die $!;
-	open(OUT, ">", $outfile) or die $!;
+	open(OUT, ">", $vcfout) or die $!;
 	my $site_no = 0;
 	my $prev_locus;
 	while(<IN>) {
@@ -598,7 +626,7 @@ sub write_phased_vcf { # Not currently supported
 			next;
 		}
 		my @fields = split;
-		
+
 		if ($fields[0] eq $prev_locus) {
 			$site_no++;
 		} else {
@@ -656,7 +684,35 @@ sub write_phased_vcf { # Not currently supported
 		}
 		print OUT join("\t", @fields[0 .. 8], @new_geno_strings), "\n";
 		$prev_locus = $fields[0];
-	}	
+	}
+}
+
+sub write_vcf {
+	my %haplotypes = %{$_[0]};
+	my %failed = %{$_[1]};
+	open(IN, "<", $vcffile) or die $!;
+	open(OUT, ">", $vcfout) or die $!;
+	while(<IN>) {
+		if ($_ =~ /^#/) {
+			print OUT $_;
+			next;
+		}
+		#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT
+		my ($locus, $pos, $id, $ref, $alt, $qual, $filter, $info, $format, @genos) = split;
+		next unless $haplotypes{$locus};
+		my @new_geno_strings;
+		for (my $i = 0; $i < scalar(@samples); $i++) {
+			my ($geno, @other_fields) = split(':', $genos[$i]);
+			if ($haplotypes{$locus}{$samples[$i]}) {
+				push @new_geno_strings, join(':', $geno, @other_fields);
+			} else { # Missing data
+				push @new_geno_strings, join(':', './.', @other_fields);
+			}
+		}
+		print OUT join("\t", $locus, $pos, $id, $ref, $alt, $qual, $filter, $info, $format, @new_geno_strings), "\n";
+	}
+
+
 }
 
 sub write_genepop {
@@ -664,9 +720,9 @@ sub write_genepop {
 	my %haplo_map = %{$_[1]};
 	my $genepop = $_[2];
 	my $popmap = $_[3];
-	
+
 	open(POP, "<", $popmap) or die $!;
-	
+
 	my %pops;
 	while(<POP>) {
 		next if $_ =~ /^\s/;
@@ -676,7 +732,7 @@ sub write_genepop {
 		push @{$pops{$pop}}, $sample;
 	}
 	close POP;
-	
+
 	open(GEN, ">", $genepop) or die $!;
 	my @loci = keys %haplotypes;
 	print GEN $genepop, "\n";
@@ -699,7 +755,7 @@ sub write_genepop {
 				} else {
 					print GEN '000000', "\t";
 				}
-				
+
 			}
 			print GEN "\n";
 		}
@@ -709,7 +765,7 @@ sub write_genepop {
 		my $code_str = join(",", map { "$_:" . sprintf('%03s',$haplo_map{$locus}{$_}) } sort { $haplo_map{$locus}{$a} <=> $haplo_map{$locus}{$b} } keys %{$haplo_map{$locus}});
 		print REC join("\t", $locus, $code_str), "\n";
 	}
-	
+
 }
 
 sub write_tsv {
@@ -717,25 +773,25 @@ sub write_tsv {
 	my $parent2 = $_[1];
 	my @samples = @{$_[2]};
 	my %haplotypes = %{$_[3]};
-	
+
 	my @progeny;
 	foreach my $ind (@samples) {
 		next if $ind eq $parent1 || $ind eq $parent2;
 		push @progeny, $ind;
 	}
-	
+
 	open(SUM, ">", 'hap_summary.txt') or die $!;
 	print SUM join("\t", 'Locus', 'N_SNPs', 'Codes'), "\n";
-	
+
 	open(TSV, ">", $tsvfile) or die $!;
 	print TSV join("\t", 'Locus', 'Parents', 'Count', 'F', @progeny), "\n";
-	
+
 	my @loci = keys %haplotypes;
-	
+
 	foreach my $locus (@loci) {
-		
+
 		# Determine the segregation type
-		
+
 		my %recode_map;
 		my @par1_haps;
 		my @par2_haps;
@@ -745,7 +801,7 @@ sub write_tsv {
 		if ($haplotypes{$locus}{$parent2}) {
 			@par2_haps = @{$haplotypes{$locus}{$parent2}};
 		}
-		
+
 		my $par1_code;
 		if (@par1_haps) {
 			$recode_map{$par1_haps[0]} = 'a';
@@ -787,7 +843,7 @@ sub write_tsv {
 					$par2_code = $par2_code . 'b';
 				} elsif ($par1_code eq 'aa' && $par2_code eq 'b') {
 					$recode_map{$par2_haps[1]} = 'c';
-					$par2_code = $par2_code . 'c';				
+					$par2_code = $par2_code . 'c';
 				} elsif ($par1_code eq 'ab' && ($par2_code eq 'a' || $par2_code eq 'b')) {
 					$recode_map{$par2_haps[1]} = 'c';
 					$par2_code = $par2_code . 'c';
@@ -801,10 +857,10 @@ sub write_tsv {
 		} else {
 			$par2_code = '--';
 		}
-		
-		
+
+
 		my $seg_type = $par1_code . '/' . $par2_code;
-		
+
 		my @geno_codes;
 		my @haps;
 		foreach my $ind (@progeny) {
@@ -833,17 +889,17 @@ sub write_tsv {
 			}
 			push @geno_codes, $ind_codes[0] . $ind_codes[1];
 		}
-		
+
 		my $missing = grep(/-/, @geno_codes);
 		my $count = scalar(@geno_codes) - $missing;
-		
+
 		print TSV join("\t", $locus, $seg_type, $count, '-', @geno_codes), "\n";
 
 		# Print some summary info for the loci output to the tsv file
 		# Note: the %alleles hash is not local to this subroutine (should fix this)
 		print SUM join("\t", $locus, scalar(keys %{$alleles{$locus}}), join(";", map { $recode_map{$_} . '=' . $_ } sort { $recode_map{$a} cmp $recode_map{$b} } keys %recode_map)), "\n";
- 
-		
+
+
 		#print TSV $locus, "\n";
 		#print TSV join("\t", @par1_haps), "\n";
 		#print TSV join("\t", @par2_haps), "\n";
@@ -858,19 +914,19 @@ sub write_ima {
 	my @samples = @{$_[3]};
 	my $imafile = $_[4];
 	my $popmap = $_[5];
-	
+
 	# Read in the reference and index the sequence
-	
+
 	open(REF, "<", $reference) or die $!;
-	
+
 	my %ref;
 	my $locus;
 	my $keep = 0;
 	while(<REF>) {
-		
+
 		if ($_ =~ /^>(\w+)/) { # A header line
 			$locus = $1;
-			
+
 			if ($haplotypes{$locus}) {
 				$keep = 1;
 				#print $locus, "\n";
@@ -887,11 +943,11 @@ sub write_ima {
 			}
 		}
 	}
-	
+
 	close REF;
-	
+
 	open(IMA, ">", 'ima.temp') or die $!;
-	
+
 	print IMA "IMa Test\n";
 	print IMA "Pop1\n";
 	print IMA scalar(keys %haplotypes), "\n";
@@ -913,22 +969,22 @@ sub write_ima {
 					$hap2 = substr($hap2, 0, $sites[$i]) . substr($haplotypes{$locus}{$ind}[1], $i, 1) . substr($hap2, $sites[$i] + 1, length($hap2) - $sites[$i]);
 				}
 			}
-			
+
 			# Remove any uncalled bases
 			foreach my $hap ($hap1, $hap2) {
 				$hap =~ s/N//g;
 			}
-				
+
 			print IMA join("\t", $ind, $hap1), "\n";
 			print IMA join("\t", $ind, $hap2), "\n";
 		}
 	}
 	close IMA;
-	
+
 	# Read in the popmap for reorganizing the file
-	
+
 	open(POP, "<", $popmap) or die $!;
-	
+
 	my %pops;
 	my %pop_names;
 	while(<POP>) {
@@ -939,9 +995,9 @@ sub write_ima {
 		$pop_names{$pop} = 1;
 	}
 	close POP;
-	
+
 	open(IMIN, "<", 'ima.temp') or die $!;
-	
+
 	my $title = <IMIN>;
 	<IMIN>;
 	my $num_loci = <IMIN>;
@@ -962,7 +1018,7 @@ sub write_ima {
 			$ind = $fields[0];
 			$seq = $fields[1];
 		}
-		
+
 		$file{$locus}{$pops{$ind}}{$ind} = [] unless $file{$locus}{$pops{$ind}}{$ind};
 		push @{$file{$locus}{$pops{$ind}}{$ind}}, $seq;
 
@@ -970,7 +1026,7 @@ sub write_ima {
 	close IMIN;
 	#open(IMD, ">", 'ima.dump') or die $!;
 	#print IMD Dumper(\%file);
-	
+
 	open(IMOUT, ">", $imafile) or die $!;
 	print IMOUT $title;
 	print IMOUT join(' ', sort keys %pop_names), "\n";
@@ -994,11 +1050,11 @@ sub write_ima {
 	close IMOUT;
 
 }
-		
+
 sub recode_haplotypes {
 	my %haplotypes = %{$_[0]};
 	my %haplo_map;
-	
+
 	foreach my $locus (keys %haplotypes) {
 		my @haplo_pool;
 		my %seen;
@@ -1012,17 +1068,15 @@ sub recode_haplotypes {
 		for (my $i = 1; $i <= scalar(@haplo_pool); $i++) {
 			$haplo_map{$locus}{$haplo_pool[$i - 1]} = $i;
 		}
-		
-			
+
+
 	}
 
-
-	print DUMP8 Dumper(\%haplo_map) if $debug;
 	return %haplo_map;
 }
 
 sub build_haplotypes {
-	
+
 	my $locus = $_[0];
 	my $ind = $_[1];
 	my $reference = $_[2];
@@ -1030,107 +1084,113 @@ sub build_haplotypes {
 	my %alleles = %{$_[4]};
 	my %indiv_index = %{$_[5]};
 	my $depth = $_[6];
-	
+
 	my $indiv_no = $indiv_index{$ind};
-	
+
 	my $sam = Bio::DB::Sam->new(-bam  =>"$ind-RG.bam",
 						 -fasta => $reference,
+					#	 -autoindex => 1,
 	);
-	
-	print DUMP6 "Attempting Locus: ", $locus, "\n";
-	
+
+	print READS "Attempting Locus: ", $locus, "\n" if $debug;
+
 	my @positions;
 	foreach my $snp (sort {$a <=> $b} keys %{$snps{$locus}}) {
 		push @positions, $snp;
 	}
-	
+
 	my %all_reads = ();
 	my @obs_haplotypes;
 	my @new_haplotypes;
-	
+
 
 	$sam->fetch($locus, sub {
 			my $a = shift;
 			$all_reads{$a->display_name} = [];
 		}
 	);
-	#print DUMP6 Dumper(\%all_reads), "\n";
-	
+	#print READS Dumper(\%all_reads), "\n";
+
+
 	my @reads = keys %all_reads;
-	#print DUMP6 join("\n", @reads);
-	
-	# Shuffled list of indexes
-	my @shuffled_indexes = shuffle(0..$#reads);
+	#print READS join("\n", @reads);
 
-	# Pick a subset of indexes
-	my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];  
+	my @chosen;
+	if (scalar(@reads) > $depth) {
+		# Shuffled list of indexes
+		my @shuffled_indexes = shuffle(0..$#reads);
 
-	# Sample reads from @reads
-	my @chosen = @reads[ @pick_indexes ];
-	
-	
+		# Pick a subset of indexes
+		my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];
+
+		# Sample reads from @reads
+		my @chosen = @reads[ @pick_indexes ];
+	} else {
+		@chosen = @reads;
+	}
+
 	my %reads;
-	
+
 	for (my $i = 0; $i < scalar(@chosen); $i++) {
 		$reads{$reads[$i]} = [];
-		
+
 	}
-	
-	print DUMP6 Dumper(\%reads), "\n";
-	
+
+	print READS Dumper(\%reads), "\n" if $debug;
+
 	$sam->fast_pileup($locus, sub {
-		
+
 		my ($seqid,$pos,$pile) = @_;
 		foreach my $snp (@positions) {
 			#print LOG "Checking $snp at $pos...\n";
 			next unless $pos == $snp;
 			#print LOG "Stopping here...\n";
-			
+
 			foreach my $pileup (@$pile) {
-				
+
 				#print LOG "Looking at pileup $count...\n";
 				my $b     = $pileup->alignment;
 				#next if $b->qual < 10;
 				my $read_name = $b->query->name;
 				next unless $reads{$read_name};
 				my $qbase  = substr($b->qseq,$pileup->qpos,1);
-				#print DUMP6 join("--!--", $locus, $read_name, $snp, $b->qseq, $pileup->qpos), "\n";
-				#print DUMP6 "--$qbase--", "\n";
+				#print READS join("--!--", $locus, $read_name, $snp, $b->qseq, $pileup->qpos), "\n";
+				#print READS "--$qbase--", "\n";
 				push @{$reads{$read_name}}, $qbase;
-				#print DUMP6 @{$reads{$read_name}}, "\n"; 
-			
+				#print READS @{$reads{$read_name}}, "\n";
+
 			}
 	#print "\n";
 		}
 	});
-	
+
 	undef $sam;
-	
-	#print DUMP6 "Reads: ", Dumper(\%reads);
-	
-	foreach my $read (keys %reads) { 
+
+	#print READS "Reads: ", Dumper(\%reads);
+
+	foreach my $read (keys %reads) {
 		#print LOG "Checking...\n";
-		
+
 		next if scalar(@{$reads{$read}}) != scalar(@positions);
 		#print LOG "Passed...\n";
 		push @obs_haplotypes, join('', @{$reads{$read}});
 	}
-	
+
 	undef %reads;
-	
+
 	# Create an array of genotypes for each SNP at the locus
-	
+
 	my @indiv_geno;
 	foreach my $snp (sort {$a <=> $b} @positions) {
 		my @bin_geno = split('', $snps{$locus}{$snp}[$indiv_no]);
 		my $bp_geno = $alleles{$locus}{$snp}[$bin_geno[0]] . $alleles{$locus}{$snp}[$bin_geno[1]];
 		push @indiv_geno, $bp_geno;
 	}
-	
+
 	# Remove any impossible haplotypes (given the individuals genotype) from the list of observed haplotypes
 
 	# First generate a list of all possible haplotypes, given the genotypes
-	
+
 	my @poss_haplotypes;
 	for(my $i = 0; $i < scalar(@positions); $i++) {
 		if ($i == 0) {
@@ -1147,20 +1207,19 @@ sub build_haplotypes {
 		push @poss_haplotypes, @duplicate;
 	}
 
-
 	@poss_haplotypes = uniq(@poss_haplotypes);
 	my @uniq_obs_haps = uniq(@obs_haplotypes);
 	#my @uniq_obs_haplotypes = uniq(@obs_haplotypes);
-	
+
 	my @uniq_obs_haplotypes;
 	foreach my $hap (@uniq_obs_haps) {
 		if (grep(/\b$hap\b/, @poss_haplotypes)) {
 			push @uniq_obs_haplotypes, $hap;
 		}
 	}
-	
+
 	# Determine the number of haplotypes that the individual should have, given the marker heterozygosity
-	
+
 	my $no_exp_haplotypes;
 	my $het = 0;
 	foreach my $geno (@indiv_geno) {
@@ -1172,25 +1231,25 @@ sub build_haplotypes {
 	} else {
 		$no_exp_haplotypes = 2;
 	}
-	
+
 	# If the number of observed haplotypes matches the number of expected haplotypes, record the haplotypes.
 	# If not, attempt to rescue the locus by removing all observed, possible haplotypes that were observed two
 	# times or fewer, then re-evaluate.
-	
+
 	my %hap_counts;
 	my $total_haps;
 	my $failed;
-	print LOG $locus, ": Possible Haps:\n";
-	print LOG Dumper(\@poss_haplotypes);
-	print LOG $locus, ": Observed Haps:\n";
-	print LOG Dumper(\@obs_haplotypes);
-	print LOG $locus, ": Unique Observed Haps:\n";
-	print LOG Dumper(\@uniq_obs_haplotypes);
+	print LOG $locus, ": Possible Haps:\n" if $debug;
+	print LOG Dumper(\@poss_haplotypes) if $debug;
+	print LOG $locus, ": Observed Haps:\n" if $debug;
+	print LOG Dumper(\@obs_haplotypes) if $debug;
+	print LOG $locus, ": Unique Observed Haps:\n" if $debug;
+	print LOG Dumper(\@uniq_obs_haplotypes) if $debug;
 	if ($no_exp_haplotypes == scalar(@uniq_obs_haplotypes)) { # The correct number of haplotypes is observed
 		@new_haplotypes = @uniq_obs_haplotypes;
-		print LOG $locus, ": Looks good\n";
+		print LOG $locus, ": Looks good\n" if $debug;
 	} elsif ($no_exp_haplotypes < scalar(@uniq_obs_haplotypes)) { # Too many haplotypes observed at the locus
-		print LOG $locus, ": Problem- trying to fix...\n";
+		print LOG $locus, ": Problem- trying to fix...\n" if $debug;
 		$hap_counts{$_}++ for @obs_haplotypes;
 		$total_haps++;
 		my %keep_list;
@@ -1203,38 +1262,38 @@ sub build_haplotypes {
 			}
 		}
 		@uniq_obs_haplotypes = keys %keep_list;
-		print LOG $locus, ": Corrected Unique Observed Haps:\n";
-		print LOG Dumper(\@uniq_obs_haplotypes);
+		print LOG $locus, ": Corrected Unique Observed Haps:\n" if $debug;
+		print LOG Dumper(\@uniq_obs_haplotypes) if $debug;
 		if ($no_exp_haplotypes == scalar(@uniq_obs_haplotypes)) {
 			@new_haplotypes = @uniq_obs_haplotypes;
-			print LOG $locus, ": Problem fixed\n";
+			print LOG $locus, ": Problem fixed\n" if $debug;
 		} else {
-			print LOG $locus, ": Unable to rescue\n";
+			print LOG $locus, ": Unable to rescue\n" if $debug;
 			$failed = 1;
 		}
 		my @keys = sort { $hap_counts{$a} <=> $hap_counts{$b} } keys(%hap_counts);
 		my @vals = @hap_counts{@keys};
-			
+
 	} else { # Too few haplotypes observed at the locus
 		@new_haplotypes = @uniq_obs_haplotypes;
-		print LOG $locus, ": Unable to rescue\n";
+		print LOG $locus, ": Unable to rescue\n" if $debug;
 		$failed = 2;
 	}
-	
+
 	# Dump some information for the failed locus
-	
+
 	if ($failed) {
 		my %hap_counts;
 		$hap_counts{$_}++ for @obs_haplotypes;
-		print LOG $locus, "\n";
-		print LOG Dumper(\%hap_counts);
+		print LOG $locus, "\n" if $debug;
+		print LOG Dumper(\%hap_counts) if $debug;
 
-		print LOG "Expected haplotypes: $no_exp_haplotypes\n";
-		print LOG "Observed haplotypes: ", scalar(@uniq_obs_haplotypes), "\n";
+		print LOG "Expected haplotypes: $no_exp_haplotypes\n" if $debug;
+		print LOG "Observed haplotypes: ", scalar(@uniq_obs_haplotypes), "\n" if $debug;
 	}
 
 	return(\@new_haplotypes, $failed);
-	
+
 }
 
 sub filter_haplotypes {
@@ -1246,113 +1305,85 @@ sub filter_haplotypes {
 	my $max_low_cov_inds = $_[4];
 	my @loci = @{$_[5]};
 	my %failed = %{$_[6]};
-	
+
 	my $num_samps = scalar(@samples);
-	
-	my %filtered_haplotypes;
+
+	my %passing_haplotypes;
 	my %snp_hap_counts;
 	my %missing;
 	$stats{'filtered_loci_missing'} = 0;
-	foreach my $locus (@all_loci) {
-	
+	foreach my $locus (@loci) {
+
 		# Count the missing data for the locus
 		my $count = scalar(keys %{$haplotypes{$locus}});
 		my $prop_non_missing = $count / $num_samps;
 		$missing{$locus} = [$count, $num_samps, $prop_non_missing];
-		
+
 		next if $status{$locus}; # Skip the locus if it has already been filtered
-		
+
 		# Count the number of indivuals failing for each reason
-		
+
 		my %count;
+		$count{'1'} = 0;
+		$count{'2'} = 0;
 		foreach my $ind (keys %{$failed{$locus}}) {
 			$count{$failed{$locus}{$ind}}++;
 			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
 		}
-		
+
 		# Filter by hard count of individuals failing because of possible paralogs
-		
+
 		if ($count{'1'} > $max_paralog_inds) {
 			$status{$locus} = 'Filtered - possible paralog';
 			$stats{'filtered_loci_paralog'}++;
 			next;
 		}
-		
+
 		# Filter by hard count of individuals failing because of low coverage or genotyping errors
-		
+
 		if ($count{'2'} > $max_low_cov_inds) {
 			$status{$locus} = 'Filtered - low coverage/genotyping error';
 			$stats{'filtered_loci_low_cov'}++;
 			next;
 		}
-		
+
 		# If a haplotype count filter is specified, filter accordingly
-		
-		if ($hap_num_filt) {
+
+		if ($hap_num_filt && $haplotypes{$locus}) {
 			my @haps;
-			my $snps;
+			my $snps = 0;
 			foreach my $ind (keys %{$haplotypes{$locus}}) {
 				foreach my $hap (@{$haplotypes{$locus}{$ind}}) {
-					$snps = length($hap) unless $snps;
+					$snps = length($hap);
 					push @haps, $hap;
 				}
 			}
 			my @uniq_haps = uniq @haps;
 			$snp_hap_counts{$locus} = [$snps, scalar(@uniq_haps)];
-			if (scalar(@uniq_haps) - $snps > $hap_num_filt) {
+			if ((scalar(@uniq_haps) - $snps) > $hap_num_filt) {
 				$stats{'filtered_loci_hapcount'}++;
 				$status{$locus} = 'Filtered - Too many haplotypes';
 				next;
 			}
 		}
-		
+
 		# Filter by amount of missing data last
-		
+
 		if ($prop_non_missing >= $miss_cutoff) {
-			$filtered_haplotypes{$locus} = $haplotypes{$locus};
+			$passing_haplotypes{$locus} = $haplotypes{$locus};
 			$status{$locus} = 'PASSED';
 		} else {
 			$stats{'filtered_loci_missing'}++;
 			$status{$locus} = 'Filtered - Over missing data threshold';
 		}
 	}
-	
-	
-	
-	return (\%filtered_haplotypes, \%snp_hap_counts, \%missing);
-	
+
+
+
+	return (\%passing_haplotypes, \%snp_hap_counts, \%missing);
+
 }
 
-sub extra {
-
-	use Games::TicTacToe;
-	my $game;
-	print "Would you like to play a game?\n";
-	my $answer = <STDIN>;
-	if ($answer =~ /y/i) {
-		print "Which game would you like to play? (choose 1 or 2)\n";
-		print "(1) Global thermonuclear war\n";
-		print "(2) Tic-Tac-Toe\n";
-		$game = <STDIN>;
-		die "Not a valid option. Maybe later...\n" unless $game == 1 || $game == 2;
-	} else {
-		die "Good choice. Better stick with haplotyping.\n\n";
-	}
-	if ($game == 1) {
-		die "Hmmm... maybe later. Why don't you build some haplotypes?\n\n";
-	} elsif ($game == 2) {
-		print "Ok. Let's play...\n";
-	}
-	my $tictactoe = Games::TicTacToe->new();
-	$tictactoe->addPlayer();
-	while (!$tictactoe->isGameOver()) {
-		$tictactoe->play();
-		print $tictactoe->getGameBoard();
-	}
-	die "That was fun. Goodbye.\n\n";
-	
-}
-	
 __END__
 
 =head1 NAME
@@ -1365,41 +1396,41 @@ perl rad_haplotyper.pl -v <vcffile> -r <reference> [options]
 
 Options:
      -v	<vcffile>		input vcf file
-	 
+
 	 -r	<reference>		reference genome
-	 
+
 	 -s	[samples]		optionally specify an individual sample to be haplotyped
-	 
+
 	 -u	[snp_cutoff]		remove loci with more than a specified number of SNPs
-	 
+
 	 -h	[hap_cutoff]		remove loci with more than a specified number of haplotypes relative to SNPs
-	 
+
 	 -m	[miss_cutoff]		cutoff for proportion of missing data for loci to be included in the output
-	 
+
 	 -mp	[max_paralog_inds]		cutoff for excluding possible paralogs
-	 
+
 	 -ml	[max_low_cov_inds]		cutoff for excluding loci with low coverage or genotyping errors
-	 
+
 	 -d	[depth]			sampling depth used by the algorithm to build haplotypes
-	 
+
 	 -g	[genepop]		genepop file for population output
-	 
+
 	 -p	[popmap]		population map for organizing Genepop file
-	 
+
 	 -t	[tsvfile]		tsv file for linkage map output
-	 
+
 	 -a	[imafile]		IMa file output
-	 
+
 	 -p1	[parent1]		first parent in the mapping cross
-	 
+
 	 -p2	[parent2]		second parent in the mapping cross
-	 
+
 	 -x	[threads]		number of threads to use for the analysis
-	 
+
 	 -n				use indels
-	 
+
 	 -e				debug
-	 
+
 
 =head1 OPTIONS
 
@@ -1484,6 +1515,6 @@ Output extra logs for debugging purposes
 =head1 DESCRIPTION
 
 B<rad_haplotyper.pl> takes a filtered VCF file from the dDocent pipeline and
-attempts to generate haplotypes of SNPs across paired-end reads for each locus 
+attempts to generate haplotypes of SNPs across paired-end reads for each locus
 
 =cut
