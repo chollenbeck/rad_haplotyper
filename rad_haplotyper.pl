@@ -10,12 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-<<<<<<< HEAD
-my $version = '1.0.4';
-
-=======
 my $version = '1.0.5';
->>>>>>> feat/printvcf
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -78,23 +73,12 @@ if ($debug) {
 	open(ALLELES, ">", 'allele_dump.out');
 	open(HAPS, ">", 'haplo_dump.out');
 	open(SNPS, ">", 'snp_dump.out');
-<<<<<<< HEAD
-	open(DUMP5, ">", 'failed.out');
-	open(DUMP6, ">", 'hap_reads.out');
-	open(DUMP7, ">", 'fail_all.log');
-	open(DUMP8, ">", 'haplo_recode.log');
-=======
 	open(READS, ">", 'hap_reads.out');
 	open(FAIL, ">", 'fail.log');
->>>>>>> feat/printvcf
 	open(LOG, ">", 'hap_log.out') unless $threads;
 }
 
 
-<<<<<<< HEAD
-
-=======
->>>>>>> feat/printvcf
 # Some warnings for common input errors
 
 if ($genepop && ! $popmap) {
@@ -291,7 +275,7 @@ my $pm = Parallel::ForkManager->new($threads) if $threads;
 
 foreach my $ind (@samples) {
 
-	if ($threads && $debug) {
+	if ($threads) {
 		$pm->start and next;
 		open(TEMP, ">", "$ind.haps");
 		open(IFAIL, ">", "$ind.fail.log");
@@ -327,13 +311,8 @@ foreach my $ind (@samples) {
 			my @uniq_haps = uniq(@haps);
 			$haplotypes{$locus}{$ind} = \@uniq_haps;
 			print LOG $locus, ": Single SNP, Looks good\n" if $debug;
-<<<<<<< HEAD
-			
-			
-=======
 
 
->>>>>>> feat/printvcf
 			# Update the progress bar
 
 			$snps_processed += scalar(keys %{$snps{$locus}});
@@ -422,14 +401,10 @@ $pm->wait_all_children if $threads;
 
 if ($threads) {
 
-<<<<<<< HEAD
-	`cat *.haps.log > haps.log`;
-=======
 	if ($debug) {
 		open(LOGOUT, ">", 'hap_log.out') or die $!;
 	}
 
->>>>>>> feat/printvcf
 	my %comb_haps;
 	foreach my $ind (@samples) {
 
@@ -451,8 +426,6 @@ if ($threads) {
 		 }
 		 close FAILIN;
 		 unlink "$ind.fail.log";
-<<<<<<< HEAD
-=======
 
 		 if ($debug) {
 
@@ -465,7 +438,6 @@ if ($threads) {
  			unlink "$ind.haps.log";
  		}
 
->>>>>>> feat/printvcf
 	}
 	%haplotypes = %comb_haps;
 
@@ -1119,15 +1091,9 @@ sub build_haplotypes {
 						 -fasta => $reference,
 					#	 -autoindex => 1,
 	);
-<<<<<<< HEAD
-	
-	print DUMP6 "Attempting Locus: ", $locus, "\n" if $debug;
-	
-=======
 
 	print READS "Attempting Locus: ", $locus, "\n" if $debug;
 
->>>>>>> feat/printvcf
 	my @positions;
 	foreach my $snp (sort {$a <=> $b} keys %{$snps{$locus}}) {
 		push @positions, $snp;
@@ -1143,59 +1109,35 @@ sub build_haplotypes {
 			$all_reads{$a->display_name} = [];
 		}
 	);
-<<<<<<< HEAD
-	#print DUMP6 Dumper(\%all_reads), "\n";
-	
-	
-	my @reads = keys %all_reads;
-	#print DUMP6 join("\n", @reads);
-	
-=======
 	#print READS Dumper(\%all_reads), "\n";
 
 
 	my @reads = keys %all_reads;
 	#print READS join("\n", @reads);
 
->>>>>>> feat/printvcf
 	my @chosen;
 	if (scalar(@reads) > $depth) {
 		# Shuffled list of indexes
 		my @shuffled_indexes = shuffle(0..$#reads);
 
 		# Pick a subset of indexes
-<<<<<<< HEAD
-		my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];  
-=======
 		my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];
->>>>>>> feat/printvcf
 
 		# Sample reads from @reads
 		my @chosen = @reads[ @pick_indexes ];
 	} else {
 		@chosen = @reads;
 	}
-<<<<<<< HEAD
-	
-	
-=======
 
->>>>>>> feat/printvcf
 	my %reads;
 
 	for (my $i = 0; $i < scalar(@chosen); $i++) {
 		$reads{$reads[$i]} = [];
 
 	}
-<<<<<<< HEAD
-	
-	print DUMP6 Dumper(\%reads), "\n" if $debug;
-	
-=======
 
 	print READS Dumper(\%reads), "\n" if $debug;
 
->>>>>>> feat/printvcf
 	$sam->fast_pileup($locus, sub {
 
 		my ($seqid,$pos,$pile) = @_;
@@ -1365,21 +1307,13 @@ sub filter_haplotypes {
 	my %failed = %{$_[6]};
 
 	my $num_samps = scalar(@samples);
-<<<<<<< HEAD
-	
-=======
 
->>>>>>> feat/printvcf
 	my %passing_haplotypes;
 	my %snp_hap_counts;
 	my %missing;
 	$stats{'filtered_loci_missing'} = 0;
 	foreach my $locus (@loci) {
-<<<<<<< HEAD
-	
-=======
 
->>>>>>> feat/printvcf
 		# Count the missing data for the locus
 		my $count = scalar(keys %{$haplotypes{$locus}});
 		my $prop_non_missing = $count / $num_samps;
@@ -1414,11 +1348,7 @@ sub filter_haplotypes {
 		}
 
 		# If a haplotype count filter is specified, filter accordingly
-<<<<<<< HEAD
-		
-=======
 
->>>>>>> feat/printvcf
 		if ($hap_num_filt && $haplotypes{$locus}) {
 			my @haps;
 			my $snps = 0;
@@ -1447,15 +1377,6 @@ sub filter_haplotypes {
 			$status{$locus} = 'Filtered - Over missing data threshold';
 		}
 	}
-<<<<<<< HEAD
-	
-	
-	
-	return (\%passing_haplotypes, \%snp_hap_counts, \%missing);
-	
-}
-=======
->>>>>>> feat/printvcf
 
 
 
