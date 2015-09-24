@@ -68,6 +68,9 @@ Options:
             Writes a genepop file using haplotypes. Must provide the name of
             the genepop file.
 
+    -o, --vcfout
+            Writes a VCF file that contains SNPs (unhaplotyped) and genotypes that were successfully built into haplotypes. Must provide the name of the VCF file.
+
     -a, --ima
             Writes a IMa file using haplotypes. Must provide the name of the
             IMa file.

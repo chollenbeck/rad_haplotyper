@@ -1415,6 +1415,8 @@ Options:
 
 	 -g	[genepop]		genepop file for population output
 
+	 -o	[vcfout]		vcf file output
+
 	 -p	[popmap]		population map for organizing Genepop file
 
 	 -t	[tsvfile]		tsv file for linkage map output
@@ -1485,6 +1487,10 @@ Count cutoff for removing loci with low coverage or genotyping errors from the f
 =item B<-g, --genepop>
 
 Writes a genepop file using haplotypes. Must provide the name of the genepop file.
+
+=item B<-o, --vcfout>
+
+Writes a VCF file that contains SNPs (unhaplotyped) and genotypes that were successfully built into haplotypes. Must provide the name of the VCF file.
 
 =item B<-a, --ima>
 
