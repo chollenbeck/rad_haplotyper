@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.5';
+my $version = '1.0.6';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -78,6 +78,7 @@ if ($debug) {
 	open(LOG, ">", 'hap_log.out') unless $threads;
 }
 
+open(DUMP, ">", "dumper.out") or die $!;
 
 # Some warnings for common input errors
 
@@ -1109,7 +1110,7 @@ sub build_haplotypes {
 			$all_reads{$a->display_name} = [];
 		}
 	);
-	#print READS Dumper(\%all_reads), "\n";
+	print READS Dumper(\%all_reads), "\n";
 
 
 	my @reads = keys %all_reads;
@@ -1117,6 +1118,7 @@ sub build_haplotypes {
 
 	my @chosen;
 	if (scalar(@reads) > $depth) {
+
 		# Shuffled list of indexes
 		my @shuffled_indexes = shuffle(0..$#reads);
 
@@ -1124,15 +1126,16 @@ sub build_haplotypes {
 		my @pick_indexes = @shuffled_indexes[ 0 .. $depth - 1 ];
 
 		# Sample reads from @reads
-		my @chosen = @reads[ @pick_indexes ];
+		@chosen = @reads[ @pick_indexes ];
+
 	} else {
 		@chosen = @reads;
 	}
 
 	my %reads;
 
-	for (my $i = 0; $i < scalar(@chosen); $i++) {
-		$reads{$reads[$i]} = [];
+	foreach my $rd (@chosen) {
+		$reads{$rd} = [];
 
 	}
 
