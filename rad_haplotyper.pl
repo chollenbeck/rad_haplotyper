@@ -78,8 +78,6 @@ if ($debug) {
 	open(LOG, ">", 'hap_log.out') unless $threads;
 }
 
-open(DUMP, ">", "dumper.out") or die $!;
-
 # Some warnings for common input errors
 
 if ($genepop && ! $popmap) {
