@@ -122,7 +122,7 @@ if ($loc_cutoff) {
 	open (VCF, "<", $vcffile) or die $!;
 	open (VCFTEMP, ">", 'temp.vcf') or die $!;
 	my @lines;
-	my $last_id;
+	my $last_id = '';
 	my $loc_removed = 0;
 	my $snps_removed = 0;
 	while (<VCF>) {
@@ -1108,7 +1108,6 @@ sub build_haplotypes {
 			$all_reads{$a->display_name} = [];
 		}
 	);
-	print READS Dumper(\%all_reads), "\n";
 
 
 	my @reads = keys %all_reads;
