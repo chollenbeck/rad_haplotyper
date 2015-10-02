@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.6';
+my $version = '1.0.7';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -60,7 +60,7 @@ GetOptions(	'version' => \$opt_version,
 			'max_low_cov_inds|ml=s' => \$max_low_cov_inds,
 			);
 
-
+#open(DUMP, ">", 'debug.out') or die $!;
 
 if ($opt_version) {
 	die "Version ",  $version, "\n";
@@ -300,6 +300,9 @@ foreach my $ind (@samples) {
 				$fail_codes{$locus} = 3; # fail code for missing genotype
 				$snps_processed += scalar(keys %{$snps{$locus}});
 				$progress->update($snps_processed) unless $threads;
+
+				# Update the missing data log if the genotype is missing
+				print IFAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
 				next;
 			}
 			my @haps;
@@ -331,6 +334,9 @@ foreach my $ind (@samples) {
 				$fail_codes{$locus} = 3; # fail code for missing genotype
 				$snps_processed += scalar(keys %{$snps{$locus}});
 				$progress->update($snps_processed) unless $threads;
+
+				# Update the missing data log if the genotype is missing
+				print IFAIL join("\t", $locus, $fail_codes{$locus}), "\n" if $threads;
 				next;
 			}
 
@@ -515,7 +521,9 @@ open(STATS, ">", 'stats.out') or die $!;
 print STATS $command, "\n";
 #print STATS Dumper(\%status);
 print STATS join("\t", 'Locus', 'Sites', 'Haplotypes', 'Inds_Haplotyped', 'Total_Inds', 'Prop_Haplotyped', 'Status', 'Poss_Paralog', 'Low_Cov/Geno_Err', 'Miss_Geno', 'Comment'), "\n";
+
 my %ind_stats;
+
 foreach my $locus (@all_loci) {
 	my $poss_paralog = 0;
 	my $low_cov = 0;
@@ -568,7 +576,7 @@ foreach my $locus (@all_loci) {
 		# }
 
 
-		print STATS join("\t", $locus, '-', '-', $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Missing data'), "\n";
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Missing data'), "\n";
 	}
 	if ($status{$locus} =~ /complex/i) {
 		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Complex'), "\n";
@@ -580,7 +588,7 @@ foreach my $locus (@all_loci) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Excess haplotypes'), "\n";
 	}
 	if ($status{$locus} =~ /paralog/i) {
-		print STATS join("\t", $locus, '-', '-', '-', '-', '-', 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
+		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Possible paralog'), "\n";
 	}
 	if ($status{$locus} =~ /low coverage/i) {
 		print STATS join("\t", $locus, $snp_hap_count{$locus}[0], $snp_hap_count{$locus}[1], $missing{$locus}[0], $missing{$locus}[1], sprintf("%.3f", $missing{$locus}[2]), 'FILTERED', $poss_paralog, $low_cov, $miss_geno, 'Low Coverage/Genotyping Errors'), "\n";
@@ -1320,15 +1328,15 @@ sub filter_haplotypes {
 		$missing{$locus} = [$count, $num_samps, $prop_non_missing];
 
 		next if $status{$locus}; # Skip the locus if it has already been filtered
+		$status{$locus} = '';
 
-		# Count the number of indivuals failing for each reason
+		# Count the number of individuals failing for each reason
 
 		my %count;
 		$count{'1'} = 0;
 		$count{'2'} = 0;
 		foreach my $ind (keys %{$failed{$locus}}) {
 			$count{$failed{$locus}{$ind}}++;
-			$ind_stats{$ind}{$failed{$locus}{$ind}}++;
 		}
 
 		# Filter by hard count of individuals failing because of possible paralogs
@@ -1336,20 +1344,20 @@ sub filter_haplotypes {
 		if ($count{'1'} > $max_paralog_inds) {
 			$status{$locus} = 'Filtered - possible paralog';
 			$stats{'filtered_loci_paralog'}++;
-			next;
+			#next;
 		}
 
 		# Filter by hard count of individuals failing because of low coverage or genotyping errors
 
-		if ($count{'2'} > $max_low_cov_inds) {
+		if ($count{'2'} > $max_low_cov_inds && ($status{$locus} !~ /Filtered/)) {
 			$status{$locus} = 'Filtered - low coverage/genotyping error';
 			$stats{'filtered_loci_low_cov'}++;
-			next;
+			#next;
 		}
 
 		# If a haplotype count filter is specified, filter accordingly
 
-		if ($hap_num_filt && $haplotypes{$locus}) {
+		if ($hap_num_filt && $haplotypes{$locus} ) {
 			my @haps;
 			my $snps = 0;
 			foreach my $ind (keys %{$haplotypes{$locus}}) {
@@ -1360,12 +1368,14 @@ sub filter_haplotypes {
 			}
 			my @uniq_haps = uniq @haps;
 			$snp_hap_counts{$locus} = [$snps, scalar(@uniq_haps)];
-			if ((scalar(@uniq_haps) - $snps) > $hap_num_filt) {
+			if ((scalar(@uniq_haps) - $snps) > $hap_num_filt && $status{$locus} !~ /Filtered/) {
 				$stats{'filtered_loci_hapcount'}++;
 				$status{$locus} = 'Filtered - Too many haplotypes';
-				next;
+				#next;
 			}
 		}
+
+		next if $status{$locus} =~ /Filtered/;
 
 		# Filter by amount of missing data last
 
