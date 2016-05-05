@@ -4,13 +4,13 @@ use Vcf;
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
-use Bio::DB::Sam;
+use Bio::Cigar;
 use List::MoreUtils qw/uniq firstidx/;
 use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.0.7';
+my $version = '1.1.0';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -343,13 +343,13 @@ foreach my $ind (@samples) {
 		}
 
 
-		my ($hap_ref, $failed) = build_haplotypes($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth);
+		my ($hap_ref, $failed) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth);
 		@haplotypes = @{$hap_ref};
 
 
 		if ($failed) {
 			print LOG "Failed, trying to recover...\n" if $debug;
-			my ($hap_ref, $failed2) = build_haplotypes($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100);
+			my ($hap_ref, $failed2) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100);
 			if ($failed2) {
 				print LOG "Failed again...\n" if $debug;
 				$fail_codes{$locus} = $failed2;
@@ -1082,7 +1082,7 @@ sub recode_haplotypes {
 	return %haplo_map;
 }
 
-sub build_haplotypes {
+sub build_haps {
 
 	my $locus = $_[0];
 	my $ind = $_[1];
@@ -1094,11 +1094,6 @@ sub build_haplotypes {
 
 	my $indiv_no = $indiv_index{$ind};
 
-	my $sam = Bio::DB::Sam->new(-bam  =>"$ind-RG.bam",
-						 -fasta => $reference,
-					#	 -autoindex => 1,
-	);
-
 	print READS "Attempting Locus: ", $locus, "\n" if $debug;
 
 	my @positions;
@@ -1106,21 +1101,38 @@ sub build_haplotypes {
 		push @positions, $snp;
 	}
 
-	my %all_reads = ();
 	my @obs_haplotypes;
 	my @new_haplotypes;
 
+	my $bam = "$ind-RG.bam";
 
-	$sam->fetch($locus, sub {
-			my $a = shift;
-			$all_reads{$a->display_name} = [];
+	my $sam = `samtools view $bam $locus`;
+
+	my @lines = split("\n", $sam);
+	my %reads;
+	my %read_pos;
+	foreach my $line (@lines) {
+		my @fields = split(/\s/, $line);
+		if ($fields[1] < 128) { # A forward read, based on the SAM flag
+			$reads{$fields[0]}[0] = [$fields[5], $fields[9]]; # Save the CIGAR string and the sequence
+			$read_pos{$fields[0]}[0] = $fields[3]; # Save the start position of the F read
+		} else {
+			$reads{$fields[0]}[1] = [$fields[5], $fields[9]];
+			$read_pos{$fields[0]}[1] = $fields[3]; # Save the start position of the R read
 		}
-	);
+	}
+
+	#print Dumper(\%read_pos);
+
+	# Filter out any unpaired reads
+	my @reads;
+	foreach my $readpair (keys %reads) {
+		next unless defined $reads{$readpair}[0] && defined $reads{$readpair}[1];
+		push @reads, $readpair;
+	}
 
 
-	my @reads = keys %all_reads;
-	#print READS join("\n", @reads);
-
+	#Randomly sample a specified number of reads
 	my @chosen;
 	if (scalar(@reads) > $depth) {
 
@@ -1137,51 +1149,63 @@ sub build_haplotypes {
 		@chosen = @reads;
 	}
 
-	my %reads;
+	#my %reads;
 
+	my %chosen_reads;
 	foreach my $rd (@chosen) {
-		$reads{$rd} = [];
+		$chosen_reads{$rd} = [];
 
 	}
 
-	print READS Dumper(\%reads), "\n" if $debug;
+	print READS Dumper(\%chosen_reads), "\n" if $debug;
 
-	$sam->fast_pileup($locus, sub {
 
-		my ($seqid,$pos,$pile) = @_;
+
+	# Parse through the reads and observe haplotypes
+
+	foreach my $readpair (keys %chosen_reads) {
+
+		local $SIG{__WARN__} = sub {
+	  		my $message = shift;
+			$message = $message . join(":", $locus, $readpair);
+	  		logger('warning', $message);
+		};
 		foreach my $snp (@positions) {
-			#print LOG "Checking $snp at $pos...\n";
-			next unless $pos == $snp;
-			#print LOG "Stopping here...\n";
-
-			foreach my $pileup (@$pile) {
-
-				#print LOG "Looking at pileup $count...\n";
-				my $b     = $pileup->alignment;
-				#next if $b->qual < 10;
-				my $read_name = $b->query->name;
-				next unless $reads{$read_name};
-				my $qbase  = substr($b->qseq,$pileup->qpos,1);
-				#print READS join("--!--", $locus, $read_name, $snp, $b->qseq, $pileup->qpos), "\n";
-				#print READS "--$qbase--", "\n";
-				push @{$reads{$read_name}}, $qbase;
-				#print READS @{$reads{$read_name}}, "\n";
-
+			# Get the reference length of each read
+			my $f_cigar = Bio::Cigar->new($reads{$readpair}[0][0]);
+			my $r_cigar = Bio::Cigar->new($reads{$readpair}[1][0]);
+			my $f_length = $f_cigar->reference_length();
+			my $r_length = $r_cigar->reference_length();
+			# Test to see if the SNP is on the F or R read
+			#print $readpair, "\n";
+			#print join("\t", $read_pos{$readpair}[0], $read_pos{$readpair}[0] + $f_length, $read_pos{$readpair}[1], $read_pos{$readpair}[1] + $r_length), "\n";
+			if ($snp > $read_pos{$readpair}[0] && $snp < $read_pos{$readpair}[0] + $f_length) { # on the F read
+				my $for_pos = $snp - $read_pos{$readpair}[0];
+				my $qpos = $f_cigar->rpos_to_qpos($for_pos);
+				my $base = substr($reads{$readpair}[0][1], $qpos, 1);
+				push @{$chosen_reads{$readpair}}, $base;
+			} elsif ($snp > $read_pos{$readpair}[1] && $snp < $read_pos{$readpair}[1] + $r_length) { # on the R read
+				# Translate the reference SNP position to position on the reverse read
+				my $rev_pos = $snp - $read_pos{$readpair}[1];
+				my $qpos = $r_cigar->rpos_to_qpos($rev_pos);
+				my $base = substr($reads{$readpair}[1][1], $qpos, 1);
+				push @{$chosen_reads{$readpair}}, $base;
+			} else {
+				last; # Skip it: the readpair is not informative because it doesn't include all of the SNPs
 			}
-	#print "\n";
 		}
-	});
+	}
 
-	undef $sam;
+
 
 	#print READS "Reads: ", Dumper(\%reads);
 
-	foreach my $read (keys %reads) {
+	foreach my $read (keys %chosen_reads) {
 		#print LOG "Checking...\n";
 
-		next if scalar(@{$reads{$read}}) != scalar(@positions);
+		next if scalar(@{$chosen_reads{$read}}) != scalar(@positions);
 		#print LOG "Passed...\n";
-		push @obs_haplotypes, join('', @{$reads{$read}});
+		push @obs_haplotypes, join('', @{$chosen_reads{$read}});
 	}
 
 	undef %reads;
@@ -1197,33 +1221,24 @@ sub build_haplotypes {
 
 	# Remove any impossible haplotypes (given the individuals genotype) from the list of observed haplotypes
 
-	# First generate a list of all possible haplotypes, given the genotypes
 
-	my @poss_haplotypes;
-	for(my $i = 0; $i < scalar(@positions); $i++) {
-		if ($i == 0) {
-			@poss_haplotypes = (substr($indiv_geno[$i], 0, 1), substr($indiv_geno[$i], 1, 1));
-			next;
-		}
-		my @duplicate = @poss_haplotypes;
-		foreach my $haplotype (@poss_haplotypes) {
-			$haplotype = $haplotype . substr($indiv_geno[$i], 0, 1);
-		}
-		foreach my $haplotype (@duplicate) {
-			$haplotype = $haplotype . substr($indiv_geno[$i], 1, 1);
-		}
-		push @poss_haplotypes, @duplicate;
-	}
-
-	@poss_haplotypes = uniq(@poss_haplotypes);
 	my @uniq_obs_haps = uniq(@obs_haplotypes);
 	#my @uniq_obs_haplotypes = uniq(@obs_haplotypes);
 
+
+	# Check to see if the observed haplotypes are possible given the individuals genotype
 	my @uniq_obs_haplotypes;
 	foreach my $hap (@uniq_obs_haps) {
-		if (grep(/\b$hap\b/, @poss_haplotypes)) {
-			push @uniq_obs_haplotypes, $hap;
+		my $impossible = 0;
+		my @hap_bases = split(//, $hap);
+		for (my $i = 0; $i < length($hap); $i++) {
+			unless (grep(/\b$hap_bases[$i]\b/, split(//, $indiv_geno[$i]) )) {
+				$impossible = 1;
+				last;
+			}
 		}
+		push @uniq_obs_haplotypes, $hap unless $impossible == 1;
+
 	}
 
 	# Determine the number of haplotypes that the individual should have, given the marker heterozygosity
@@ -1247,8 +1262,6 @@ sub build_haplotypes {
 	my %hap_counts;
 	my $total_haps;
 	my $failed;
-	print LOG $locus, ": Possible Haps:\n" if $debug;
-	print LOG Dumper(\@poss_haplotypes) if $debug;
 	print LOG $locus, ": Observed Haps:\n" if $debug;
 	print LOG Dumper(\@obs_haplotypes) if $debug;
 	print LOG $locus, ": Unique Observed Haps:\n" if $debug;
@@ -1262,11 +1275,8 @@ sub build_haplotypes {
 		$total_haps++;
 		my %keep_list;
 		for (my $i = 0; $i < scalar(@uniq_obs_haplotypes); $i++) {
-			#if ($hap_counts{$uniq_obs_haplotypes[$i]} > 0.05 * $total_haps) {
-			if ($hap_counts{$uniq_obs_haplotypes[$i]} > 2) {
-				if (grep(/\b$uniq_obs_haplotypes[$i]\b/, @poss_haplotypes)) {
-					$keep_list{$uniq_obs_haplotypes[$i]}++;
-				}
+			if ($hap_counts{$uniq_obs_haplotypes[$i]} > 0.05 * $total_haps) {
+				$keep_list{$uniq_obs_haplotypes[$i]}++;
 			}
 		}
 		@uniq_obs_haplotypes = keys %keep_list;
@@ -1392,6 +1402,14 @@ sub filter_haplotypes {
 
 	return (\%passing_haplotypes, \%snp_hap_counts, \%missing);
 
+}
+
+sub logger {
+	my ($level, $msg) = @_;
+	if (open my $out, '>>', 'log.txt') {
+		chomp $msg;
+		print $out "$level - $msg\n";
+	}
 }
 
 __END__
