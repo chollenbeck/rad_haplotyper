@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.0';
+my $version = '1.1.1';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -30,6 +30,7 @@ my $reference = '';
 my $debug = '';
 my $depth = 20;
 my $indels = '';
+my $complex = 'skip';
 my $threads = '';
 my $miss_cutoff = 0.9;
 my $popmap = '';
@@ -50,7 +51,8 @@ GetOptions(	'version' => \$opt_version,
 			'parent1|p1=s' => \$parent1,
 			'parent2|p2=s' => \$parent2,
 			'depth|d=s' => \$depth,
-			'indels|n' => \$indels,
+			'keep_single_indels|n' => \$indels,
+			'complex|c' => \$complex,
 			'miss_cutoff|m=s' => \$miss_cutoff,
 			'threads|x=s' => \$threads,
 			'debug|e' => \$debug,
@@ -87,6 +89,11 @@ if ($genepop && ! $popmap) {
 
 if ($tsvfile && (! $parent1 || ! $parent2)) {
 	warn "\nTSV output requires parents to be specified\n";
+	pod2usage(-verbose => 1) if @ARGV == 0;
+}
+
+if ($imafile && ! $reference) {
+	warn "\nIMa output requires a reference FASTA sequence\n";
 	pod2usage(-verbose => 1) if @ARGV == 0;
 }
 
@@ -182,23 +189,36 @@ my (@samples) = $vcf->get_samples();
 my %snps;
 my %alleles;
 my $prev_id = '';
-my $prev_position;
+my %loc_codes;
+my %prev_loc_snps;
+my %prev_loc_alleles;
 my @complex_loci;
+my %complex;
 while (my $x = $vcf->next_data_array()) {
 
-	# Skip if either the reference or alternative bases are an 'N'
+	my $id = $$x[0];
+	my $site_num = $$x[1];
+	my $ref = $$x[3];
+	my $alt = $$x[4];
 
-	if ($$x[3] eq 'N' || $$x[4] eq 'N') {
+	# Skip if either the reference or alternative bases are an 'N'
+	if ($ref eq 'N' || $alt eq 'N') {
 		next;
 	}
 
-	if (length($$x[3]) > 1 || length($$x[4]) > 1) {	# Skips indels or complex polymorphisms
-		 $stats{'loci_removed_complex'}++;
-		 $status{$$x[0]} = 'Filtered - Complex polymorphism';
-		 push @complex_loci, $x;
-		 next;
+	# Flag the site as a complex polymorphism
+	if (length($ref) > 1 || length($alt) > 1) {
+		 $complex{$id} = 1; # So that the parser will evaluate the locus as containing complex loci
+		 $loc_codes{$id}{$site_num} = 'complex';
+	} else {
+		$loc_codes{$id}{$site_num} = 'snp';
 	}
-	my $id = $$x[0];
+
+
+
+
+
+	# Get the SNP genotypes
 	my @genotypes;
 	for (my $i = 0; $i < scalar(@samples); $i++) {
 		my ($geno, @indiv_codes) = split(':', $$x[9 + $i]);
@@ -206,48 +226,188 @@ while (my $x = $vcf->next_data_array()) {
 		push @genotypes, $geno;
 	}
 
-	if ($id ne $prev_id) { # New locus
-		$snps{$id} = { $$x[1] => \@genotypes };
-		my @alleles = ($$x[3], split(',', $$x[4]));
-		$alleles{$id} = { $$x[1] => \@alleles };
-		$stats{'attempted_loci'}++;
-		$stats{'attempted_snps'}++;
+	if ($prev_id eq '') { # First locus
+		#print "First locus!: $id\n";
+		$prev_loc_snps{$site_num} = \@genotypes;
+		my @alleles = ($ref, split(',', $alt));
+		$prev_loc_alleles{$site_num} = \@alleles;
+
+	} elsif ($id ne $prev_id) { # New locus
+		#print "New locus!: $id\n";
+
+		# Evaluate the previous locus
+		#print "Evaluate the previous locus: $prev_id\n";
+		if (defined $complex{$prev_id}) { # The previous locus had complex polymorphisms
+			#print "The previous locus was complex!: $prev_id\n";
+			# If there is only one polymorphic site at the locus
+			if (scalar(keys %prev_loc_snps) == 1) {
+				if ($indels) {
+					$snps{$prev_id} = {%prev_loc_snps};
+					$alleles{$prev_id} = {%prev_loc_alleles};
+					$stats{'attempted_indels'}++;
+					$stats{'attempted_loci'}++;
+				} else {
+					$stats{'loci_removed_complex'}++;
+					$status{$prev_id} = 'Filtered - Complex polymorphism';
+					push @complex_loci, $prev_id;
+
+				}
+			} else { # There is more than one polymorphic site
+				if ($complex eq 'skip') {
+
+					# Remove the complex sites and keep the others
+					my %new_prev_loc_snps;
+					my %new_prev_loc_alleles;
+					foreach my $site (keys %prev_loc_snps) {
+
+						if (! $loc_codes{$prev_id}{$site}) {
+							print join("\t", $prev_id, $site), "\n";
+							print Dumper($loc_codes{$prev_id});
+							print Dumper(\%prev_loc_snps);
+							#print Dumper(\%snps);
+							die;
+						}
+						if ($loc_codes{$prev_id}{$site} eq 'complex') {
+
+							next;
+						} else {
+							$new_prev_loc_snps{$site} = $prev_loc_snps{$site};
+							$new_prev_loc_alleles{$site} = $prev_loc_alleles{$site};
+						}
+					}
+					if (scalar(keys %new_prev_loc_snps) == 0) { # All of the sites are complex
+						$stats{'loci_removed_complex'}++;
+						$status{$prev_id} = 'Filtered - Complex polymorphism';
+						push @complex_loci, $prev_id;
+					} else { # There are sites that are not complex
+						$snps{$prev_id} = {%new_prev_loc_snps};
+						$alleles{$prev_id} = {%new_prev_loc_alleles};
+						$stats{'attempted_snps'} += scalar(keys %prev_loc_snps);
+						$stats{'attempted_loci'}++;
+					}
+
+
+				} elsif ($complex eq 'remove') {
+					$stats{'loci_removed_complex'}++;
+					$status{$prev_id} = 'Filtered - Complex polymorphism';
+					push @complex_loci, $prev_id;
+				}
+			}
+
+
+		} else { # The previous locus did not have complex polymorphisms
+			# Add it to the SNPs hash
+			#print "Here!: $prev_id\n";
+			$snps{$prev_id} = {%prev_loc_snps};
+			$alleles{$prev_id} = {%prev_loc_alleles};
+			$stats{'attempted_snps'} += scalar(keys %prev_loc_snps);
+			$stats{'attempted_loci'}++;
+			#print Dumper(\%snps);
+		}
+
+		# Clear the data structures for the new locus
+		undef %prev_loc_snps;
+		undef %prev_loc_alleles;
+
+		# Add the info for the first SNP at the new locus
+
+		$prev_loc_snps{$site_num} = \@genotypes;
+		my @alleles = ($ref, split(',', $alt));
+		$prev_loc_alleles{$site_num} = \@alleles;
+
+		#print Dumper(\%snps);
+		#print Dumper(\%prev_loc_snps);
+		#die;
 
 
 	} else { # Same locus, new SNP
-		$snps{$id}{$$x[1]} = \@genotypes;
-		my @alleles = ($$x[3], split(',', $$x[4]));
-		$alleles{$id}{$$x[1]} = \@alleles;
-		$stats{'attempted_snps'}++;
+		#print "Same locus, new SNP!: $id, $site_num\n";
+		$prev_loc_snps{$site_num} = \@genotypes;
+		my @alleles = ($ref, split(',', $alt));
+		$prev_loc_alleles{$site_num} = \@alleles;
 	}
 
-	$alleles{$id}{$$x[1]} =~ s/,//;
+	#$alleles{$id}{$$x[1]} =~ s/,//;
 	$prev_id = $id;
-	$prev_position = $$x[1];
+
+	if (eof) {
+		# Evaluate the final locus
+		#print "Evaluate the previous locus: $prev_id\n";
+		if (defined $complex{$prev_id}) { # The previous locus had complex polymorphisms
+			#print "The previous locus was complex!: $prev_id\n";
+			# If there is only one polymorphic site at the locus
+			if (scalar(keys %prev_loc_snps) == 1) {
+				if ($indels) {
+					$snps{$prev_id} = {%prev_loc_snps};
+					$alleles{$prev_id} = {%prev_loc_alleles};
+					$stats{'attempted_indels'}++;
+					$stats{'attempted_loci'}++;
+				} else {
+					$stats{'loci_removed_complex'}++;
+					$status{$prev_id} = 'Filtered - Complex polymorphism';
+					push @complex_loci, $prev_id;
+
+				}
+			} else { # There is more than one polymorphic site
+				if ($complex eq 'skip') {
+
+					# Remove the complex sites and keep the others
+					my %new_prev_loc_snps;
+					my %new_prev_loc_alleles;
+					foreach my $site (keys %prev_loc_snps) {
+
+						if (! $loc_codes{$prev_id}{$site}) {
+							print join("\t", $prev_id, $site), "\n";
+							print Dumper($loc_codes{$prev_id});
+							print Dumper(\%prev_loc_snps);
+							#print Dumper(\%snps);
+							die;
+						}
+						if ($loc_codes{$prev_id}{$site} eq 'complex') {
+
+							next;
+						} else {
+							$new_prev_loc_snps{$site} = $prev_loc_snps{$site};
+							$new_prev_loc_alleles{$site} = $prev_loc_alleles{$site};
+						}
+					}
+					if (scalar(keys %new_prev_loc_snps) == 0) { # All of the sites are complex
+						$stats{'loci_removed_complex'}++;
+						$status{$prev_id} = 'Filtered - Complex polymorphism';
+						push @complex_loci, $prev_id;
+					} else { # There are sites that are not complex
+						$snps{$prev_id} = {%new_prev_loc_snps};
+						$alleles{$prev_id} = {%new_prev_loc_alleles};
+						$stats{'attempted_snps'} += scalar(keys %prev_loc_snps);
+						$stats{'attempted_loci'}++;
+					}
+
+
+				} elsif ($complex eq 'remove') {
+					$stats{'loci_removed_complex'}++;
+					$status{$prev_id} = 'Filtered - Complex polymorphism';
+					push @complex_loci, $prev_id;
+				}
+			}
+
+
+		} else { # The previous locus did not have complex polymorphisms
+			# Add it to the SNPs hash
+			#print "Here!: $prev_id\n";
+			$snps{$prev_id} = {%prev_loc_snps};
+			$alleles{$prev_id} = {%prev_loc_alleles};
+			$stats{'attempted_snps'} += scalar(keys %prev_loc_snps);
+			$stats{'attempted_loci'}++;
+			#print Dumper(\%snps);
+		}
+	}
 
 }
 $vcf->close;
 
-# Include indels if they are the only polymorphism at the locus (and if specified at the command line)
-
-if ($indels) {
-	foreach my $locus (@complex_loci) {
-		next if $snps{$$locus[0]};
-		my $id = $$locus[0];
-		my @genotypes;
-		for (my $i = 0; $i < scalar(@samples); $i++) {
-			my ($geno, @indiv_codes) = split(':', $$locus[9 + $i]);
-			$geno =~ s/\///;
-			push @genotypes, $geno;
-		}
-		$snps{$id} = { $$locus[1] => \@genotypes };
-		my @alleles = ($$locus[3], split(',', $$locus[4]));
-		$alleles{$id} = { $$locus[1] => \@alleles };
-		$stats{'attempted_loci'}++;
-		$stats{'attempted_indels'}++;
-		$stats{'loci_removed_complex'}--;
-	}
-}
+# Clear up some potentially large variables
+undef %complex;
+undef %loc_codes;
 
 print ALLELES Dumper(\%alleles) if $debug;
 print SNPS Dumper(\%snps) if $debug;
@@ -1094,7 +1254,7 @@ sub build_haps {
 
 	my $indiv_no = $indiv_index{$ind};
 
-	print READS "Attempting Locus: ", $locus, "\n" if $debug;
+	#print  "Attempting Locus: ", $locus, "\n" if $debug;
 
 	my @positions;
 	foreach my $snp (sort {$a <=> $b} keys %{$snps{$locus}}) {
@@ -1159,10 +1319,7 @@ sub build_haps {
 
 	print READS Dumper(\%chosen_reads), "\n" if $debug;
 
-
-
 	# Parse through the reads and observe haplotypes
-
 	foreach my $readpair (keys %chosen_reads) {
 
 		local $SIG{__WARN__} = sub {
@@ -1207,6 +1364,8 @@ sub build_haps {
 		#print LOG "Passed...\n";
 		push @obs_haplotypes, join('', @{$chosen_reads{$read}});
 	}
+
+
 
 	undef %reads;
 
@@ -1406,9 +1565,11 @@ sub filter_haplotypes {
 
 sub logger {
 	my ($level, $msg) = @_;
-	if (open my $out, '>>', 'log.txt') {
-		chomp $msg;
-		print $out "$level - $msg\n";
+	if ($debug) {
+		if (open my $out, '>>', 'log.txt') {
+			chomp $msg;
+			print $out "$level - $msg\n";
+		}
 	}
 }
 
@@ -1420,12 +1581,12 @@ rad_haplotyper.pl
 
 =head1 SYNOPSIS
 
-perl rad_haplotyper.pl -v <vcffile> -r <reference> [options]
+perl rad_haplotyper.pl -v <vcffile> [options]
 
 Options:
      -v	<vcffile>		input vcf file
 
-	 -r	<reference>		reference genome
+	 -r	[reference]		reference genome
 
 	 -s	[samples]		optionally specify an individual sample to be haplotyped
 
@@ -1440,6 +1601,8 @@ Options:
 	 -ml	[max_low_cov_inds]		cutoff for excluding loci with low coverage or genotyping errors
 
 	 -d	[depth]			sampling depth used by the algorithm to build haplotypes
+
+	 -c	[complex]		handling of complex loci
 
 	 -g	[genepop]		genepop file for population output
 
@@ -1472,7 +1635,7 @@ VCF input file
 
 =item B<-r, --reference>
 
-Reference genome (FASTA format)
+Reference genome (FASTA format) - required if IMa output is required
 
 =item B<-s, --samples>
 
@@ -1492,9 +1655,14 @@ influenced the number of haplotypes in the population. [Default: 100]
 
 Run in parallel across individuals with a specified number of threads
 
-=item B<-n, --indels>
+=item B<-n, --keep_single_indels>
 
-Includes indels that are the only polymorphism at the locus (tag)
+Includes indels that are the only polymorphism at the locus (contig)
+
+=item B<-c, --complex>
+
+Specify how to treat complex polymorphisms in the VCF file (indels, muliallelic SNPs, or complex polymorphims). The two supported options are 'skip', which ignores them, keeping other sites at that contig for haplotyping,
+or 'remove', which removes entire contigs that contain complex polymorphisms [Default: skip]
 
 =item B<-d, --depth>
 
