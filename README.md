@@ -42,6 +42,9 @@ Options:
                 Includes indels that are the only polymorphism at the locus
                 (contig)
 
+     --use_only_paired
+                Use only reads where both pairs are aligned at the locus
+
     -c, --complex
                 Specify how to treat complex polymorphisms in the VCF file
                 (indels, muliallelic SNPs, or complex polymorphims). The two
