@@ -30,6 +30,7 @@ my $reference = '';
 my $debug = '';
 my $depth = 20;
 my $indels = '';
+my $only_paired = '';
 my $complex = 'skip';
 my $threads = '';
 my $miss_cutoff = 0.9;
@@ -52,6 +53,7 @@ GetOptions(	'version' => \$opt_version,
 			'parent2|p2=s' => \$parent2,
 			'depth|d=s' => \$depth,
 			'keep_single_indels|n' => \$indels,
+			'use_only_paired' => \$only_paired,
 			'complex|c' => \$complex,
 			'miss_cutoff|m=s' => \$miss_cutoff,
 			'threads|x=s' => \$threads,
@@ -75,7 +77,6 @@ if ($debug) {
 	open(ALLELES, ">", 'allele_dump.out');
 	open(HAPS, ">", 'haplo_dump.out');
 	open(SNPS, ">", 'snp_dump.out');
-	open(READS, ">", 'hap_reads.out');
 	open(FAIL, ">", 'fail.log');
 	open(LOG, ">", 'hap_log.out') unless $threads;
 }
@@ -1284,10 +1285,12 @@ sub build_haps {
 
 	#print Dumper(\%read_pos);
 
-	# Filter out any unpaired reads
+	# Optionally filter out any unpaired reads
 	my @reads;
 	foreach my $readpair (keys %reads) {
-		next unless defined $reads{$readpair}[0] && defined $reads{$readpair}[1];
+		if ($only_paired) {
+			next unless defined $reads{$readpair}[0] && defined $reads{$readpair}[1];
+		}
 		push @reads, $readpair;
 	}
 
@@ -1317,8 +1320,6 @@ sub build_haps {
 
 	}
 
-	print READS Dumper(\%chosen_reads), "\n" if $debug;
-
 	# Parse through the reads and observe haplotypes
 	foreach my $readpair (keys %chosen_reads) {
 
@@ -1337,15 +1338,15 @@ sub build_haps {
 			#print $readpair, "\n";
 			#print join("\t", $read_pos{$readpair}[0], $read_pos{$readpair}[0] + $f_length, $read_pos{$readpair}[1], $read_pos{$readpair}[1] + $r_length), "\n";
 			if ($snp > $read_pos{$readpair}[0] && $snp < $read_pos{$readpair}[0] + $f_length) { # on the F read
-				my $for_pos = $snp - $read_pos{$readpair}[0];
+				my $for_pos = ($snp - $read_pos{$readpair}[0]) + 1;
 				my $qpos = $f_cigar->rpos_to_qpos($for_pos);
-				my $base = substr($reads{$readpair}[0][1], $qpos, 1);
+				my $base = substr($reads{$readpair}[0][1], $qpos - 1, 1);
 				push @{$chosen_reads{$readpair}}, $base;
 			} elsif ($snp > $read_pos{$readpair}[1] && $snp < $read_pos{$readpair}[1] + $r_length) { # on the R read
 				# Translate the reference SNP position to position on the reverse read
-				my $rev_pos = $snp - $read_pos{$readpair}[1];
+				my $rev_pos = ($snp - $read_pos{$readpair}[1]) + 1;
 				my $qpos = $r_cigar->rpos_to_qpos($rev_pos);
-				my $base = substr($reads{$readpair}[1][1], $qpos, 1);
+				my $base = substr($reads{$readpair}[1][1], $qpos - 1, 1);
 				push @{$chosen_reads{$readpair}}, $base;
 			} else {
 				last; # Skip it: the readpair is not informative because it doesn't include all of the SNPs
