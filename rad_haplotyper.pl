@@ -1691,7 +1691,7 @@ or 'remove', which removes entire contigs that contain complex polymorphisms [De
 
 Specify a depth of sampling reads for building haplotypes [Default: 20]
 
-=item B<-a, --hap_rescue>
+=item B<-z, --hap_rescue>
 
 Specify a rescue parameter that controls the behavior of the script when dealing with loci that have more observed haplotypes than are possible given the genotypes. A value less than one will indicate
 remove observed haplotypes from consideration if they are observed less than the specified proportion of the total number of reads. A value of one or greater indicates that a haplotype should be removed
