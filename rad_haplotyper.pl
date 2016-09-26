@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.2';
+my $version = '1.1.3';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -1088,30 +1088,38 @@ sub write_ima {
 	open(REF, "<", $reference) or die $!;
 
 	my %ref;
+	my %locus_length;
 	my $locus;
-	my $keep = 0;
-	while(<REF>) {
+	local $/ = ">";
+	my $first = <REF>; # Removes the first '>'
+	while(my $record = <REF>){
 
-		if ($_ =~ /^>(\w+)/) { # A header line
-			$locus = $1;
 
-			if ($haplotypes{$locus}) {
-				$keep = 1;
-				#print $locus, "\n";
-			}
-		} else { # A sequence line
-			chomp;
-			if ($keep == 1) {
-				$ref{$locus} = $_;
-				#print $ref{$locus}, "\n";
-				$keep = 0;
+  	chomp $record;
+		#print $record;
+  	my $newline_loc = index($record, "\n");
+		#print "--$newline_loc--\n";
+  	my $locus = substr($record, 0, $newline_loc);
+		#print "$locus";
+
+		if ($haplotypes{$locus}) {
+				#print "Here\n";
+				my $seq = substr($record, $newline_loc+1);
+  			$seq =~ tr/\n//d;
+				$ref{$locus} = $seq;
+				if ($seq =~ /N{10}/) {
+					$locus_length{$locus} = length($seq) - 10;
+				} else {
+					$locus_length{$locus} = length($seq);
+				}
+
+		} else {
+				#print "Not here\n";
 				next;
-			} elsif ($keep == 0) {
-				next;
-			}
 		}
 	}
-
+	#print Dumper(\%ref);
+	local $/ = "\n";
 	close REF;
 
 	open(IMA, ">", 'ima.temp') or die $!;
@@ -1120,7 +1128,7 @@ sub write_ima {
 	print IMA "Pop1\n";
 	print IMA scalar(keys %haplotypes), "\n";
 	foreach my $locus (keys %ref) {
-		print IMA join(" ", $locus, scalar(@samples), length($ref{$locus}) - 12, 'I', 1), "\n";
+		print IMA join(" ", $locus, scalar(@samples), $locus_length{$locus}, 'I', 1), "\n";
 		my @sites = sort {$a <=> $b} keys %{$snps{$locus}};
 		foreach my $ind (@samples) {
 			next unless $haplotypes{$locus}{$ind}; # Skip the individual if there are no called haplotypes (missing data)
@@ -1140,7 +1148,7 @@ sub write_ima {
 
 			# Remove any uncalled bases
 			foreach my $hap ($hap1, $hap2) {
-				$hap =~ s/N//g;
+				$hap =~ s/N{10}//g;
 			}
 
 			print IMA join("\t", $ind, $hap1), "\n";
@@ -1172,7 +1180,6 @@ sub write_ima {
 	chomp($num_loci);
 	$locus = '';
 	my %file;
-	my %length;
 	while(<IMIN>) {
 		chomp;
 		my $ind;
@@ -1180,7 +1187,6 @@ sub write_ima {
 		my @fields = split;
 		if (scalar(@fields) != 2) {
 			$locus = $fields[0];
-			$length{$locus} = $fields[2];
 			next;
 		} else {
 			$ind = $fields[0];
@@ -1197,7 +1203,9 @@ sub write_ima {
 
 	open(IMOUT, ">", $imafile) or die $!;
 	print IMOUT $title;
+	print IMOUT scalar(keys %pop_names), "\n";
 	print IMOUT join(' ', sort keys %pop_names), "\n";
+	print IMOUT '(0,1):2', "\n";
 	print IMOUT $num_loci, "\n";
 	foreach my $locus (keys %file) {
 		my %pop_size;
@@ -1206,12 +1214,16 @@ sub write_ima {
 		}
 		print IMOUT "$locus ";
 		foreach my $pop (sort keys %{$file{$locus}}) {
-			print IMOUT $pop_size{$pop}, ' ';
+			print IMOUT $pop_size{$pop} * 2, ' '; # double the number of inds to print the number of alleles
 		}
-		print IMOUT join(' ', $length{$locus}, 'I', '1'), "\n";
+		print IMOUT join(' ', $locus_length{$locus}, 'I', '1'), "\n";
 		foreach my $pop (sort keys %{$file{$locus}}) {
 			foreach my $ind (keys %{$file{$locus}{$pop}}) {
-				print IMOUT join("\n", "$ind $file{$locus}{$pop}{$ind}[0]", "$ind $file{$locus}{$pop}{$ind}[1]"), "\n";
+				my $ind_name = $ind;
+				if (length($ind) > 10) {
+					$ind_name = substr($ind, -9, 9);
+				}
+				print IMOUT join("\n", sprintf("%-10s", "${ind_name}A") . $file{$locus}{$pop}{$ind}[0], sprintf("%-10s", "${ind_name}B") . $file{$locus}{$pop}{$ind}[1]), "\n";
 			}
 		}
 	}
