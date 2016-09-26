@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.3';
+my $version = '1.1.4';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -39,6 +39,7 @@ my $hap_num_filt = 100;
 my @samp_subset;
 my $max_paralog_inds = 1000000;
 my $max_low_cov_inds = 1000000;
+my $hap_rescue = 0.05;
 
 GetOptions(	'version' => \$opt_version,
 			'vcffile|v=s' => \$vcffile,
@@ -62,6 +63,8 @@ GetOptions(	'version' => \$opt_version,
 			'hap_count|h=s' => \$hap_num_filt,
 			'max_paralog_inds|mp=s' => \$max_paralog_inds,
 			'max_low_cov_inds|ml=s' => \$max_low_cov_inds,
+			'hap_rescue|z=s' => \$hap_rescue
+
 			);
 
 #open(DUMP, ">", 'debug.out') or die $!;
@@ -504,13 +507,13 @@ foreach my $ind (@samples) {
 		}
 
 
-		my ($hap_ref, $failed) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth);
+		my ($hap_ref, $failed) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth, $hap_rescue);
 		@haplotypes = @{$hap_ref};
 
 
 		if ($failed) {
 			print LOG "Failed, trying to recover...\n" if $debug;
-			my ($hap_ref, $failed2) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100);
+			my ($hap_ref, $failed2) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, 100, $hap_rescue);
 			if ($failed2) {
 				print LOG "Failed again...\n" if $debug;
 				$fail_codes{$locus} = $failed2;
@@ -1264,6 +1267,7 @@ sub build_haps {
 	my %alleles = %{$_[4]};
 	my %indiv_index = %{$_[5]};
 	my $depth = $_[6];
+	my $rescue = $_[7];
 
 	my $indiv_no = $indiv_index{$ind};
 
@@ -1447,8 +1451,14 @@ sub build_haps {
 		$total_haps++;
 		my %keep_list;
 		for (my $i = 0; $i < scalar(@uniq_obs_haplotypes); $i++) {
-			if ($hap_counts{$uniq_obs_haplotypes[$i]} > 0.05 * $total_haps) {
-				$keep_list{$uniq_obs_haplotypes[$i]}++;
+			if ($rescue >= 1) { # the rescue parameter specifies an absolute number of reads
+				if ($hap_counts{$uniq_obs_haplotypes[$i]} > $rescue) {
+					$keep_list{$uniq_obs_haplotypes[$i]}++;
+				}
+			} else { # the rescue parameter specifies a proportion of reads
+				if ($hap_counts{$uniq_obs_haplotypes[$i]} > $rescue * $total_haps) {
+					$keep_list{$uniq_obs_haplotypes[$i]}++;
+				}
 			}
 		}
 		@uniq_obs_haplotypes = keys %keep_list;
@@ -1680,6 +1690,14 @@ or 'remove', which removes entire contigs that contain complex polymorphisms [De
 =item B<-d, --depth>
 
 Specify a depth of sampling reads for building haplotypes [Default: 20]
+
+=item B<-a, --hap_rescue>
+
+Specify a rescue parameter that controls the behavior of the script when dealing with loci that have more observed haplotypes than are possible given the genotypes. A value less than one will indicate
+remove observed haplotypes from consideration if they are observed less than the specified proportion of the total number of reads. A value of one or greater indicates that a haplotype should be removed
+from consideration if the haplotype is observed in fewer reads than the number specified. Example: If the parameter is set to 3, the script will eliminate haplotypes observed in less than 3 reads before
+determining whether there is an approriate number of haplotypes observed; if the parameter is set to 0.05, the script will eliminate haplotypes obseerved from less than 5 percent of the total number of
+reads at that locus in that individual before determining whether the correct number of haplotypes is present. [Default: 0.05].
 
 =item B<-m, --miss_cutoff>
 
