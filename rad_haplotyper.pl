@@ -1625,6 +1625,8 @@ Options:
 
 	 -d	[depth]			sampling depth used by the algorithm to build haplotypes
 
+         -z     [hap_rescue]                 controls haplotype rescue logic
+
 	 -c	[complex]		handling of complex loci
 
 	 -g	[genepop]		genepop file for population output
