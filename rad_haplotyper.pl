@@ -218,10 +218,6 @@ while (my $x = $vcf->next_data_array()) {
 		$loc_codes{$id}{$site_num} = 'snp';
 	}
 
-
-
-
-
 	# Get the SNP genotypes
 	my @genotypes;
 	for (my $i = 0; $i < scalar(@samples); $i++) {
@@ -231,18 +227,17 @@ while (my $x = $vcf->next_data_array()) {
 	}
 
 	if ($prev_id eq '') { # First locus
-		#print "First locus!: $id\n";
+
 		$prev_loc_snps{$site_num} = \@genotypes;
 		my @alleles = ($ref, split(',', $alt));
 		$prev_loc_alleles{$site_num} = \@alleles;
 
 	} elsif ($id ne $prev_id) { # New locus
-		#print "New locus!: $id\n";
 
 		# Evaluate the previous locus
-		#print "Evaluate the previous locus: $prev_id\n";
+
 		if (defined $complex{$prev_id}) { # The previous locus had complex polymorphisms
-			#print "The previous locus was complex!: $prev_id\n";
+
 			# If there is only one polymorphic site at the locus
 			if (scalar(keys %prev_loc_snps) == 1) {
 				if ($indels) {
@@ -306,7 +301,7 @@ while (my $x = $vcf->next_data_array()) {
 			$alleles{$prev_id} = {%prev_loc_alleles};
 			$stats{'attempted_snps'} += scalar(keys %prev_loc_snps);
 			$stats{'attempted_loci'}++;
-			#print Dumper(\%snps);
+
 		}
 
 		# Clear the data structures for the new locus
@@ -321,11 +316,10 @@ while (my $x = $vcf->next_data_array()) {
 
 		#print Dumper(\%snps);
 		#print Dumper(\%prev_loc_snps);
-		#die;
 
 
 	} else { # Same locus, new SNP
-		#print "Same locus, new SNP!: $id, $site_num\n";
+
 		$prev_loc_snps{$site_num} = \@genotypes;
 		my @alleles = ($ref, split(',', $alt));
 		$prev_loc_alleles{$site_num} = \@alleles;
@@ -336,9 +330,9 @@ while (my $x = $vcf->next_data_array()) {
 
 	if (eof) {
 		# Evaluate the final locus
-		#print "Evaluate the previous locus: $prev_id\n";
+
 		if (defined $complex{$prev_id}) { # The previous locus had complex polymorphisms
-			#print "The previous locus was complex!: $prev_id\n";
+
 			# If there is only one polymorphic site at the locus
 			if (scalar(keys %prev_loc_snps) == 1) {
 				if ($indels) {
@@ -448,10 +442,11 @@ foreach my $ind (@samples) {
 		}
 	}
 
+
 	my $indiv_no = $indiv_index{$ind};
 	print LOG "---------$ind----------\n" if $debug;
 	print "Building haplotypes for $ind\n";
-	my $progress = Term::ProgressBar->new($stats{'attempted_snps'} + $stats{'attempted_indels'}) unless $threads;
+	my $progress = Term::ProgressBar->new(scalar(keys %snps)) unless $threads;
 	my $snps_processed = 0;
 	my %fail_codes;
 	foreach my $locus (keys %snps) {
@@ -462,7 +457,8 @@ foreach my $ind (@samples) {
 			my @genotype = split('', $snps{$locus}{$position[0]}[$indiv_no]);
 			if ($genotype[0] eq '.') {	# missing data
 				$fail_codes{$locus} = 3; # fail code for missing genotype
-				$snps_processed += scalar(keys %{$snps{$locus}});
+
+				$snps_processed++;
 				$progress->update($snps_processed) unless $threads;
 
 				# Update the missing data log if the genotype is missing
@@ -481,7 +477,7 @@ foreach my $ind (@samples) {
 
 			# Update the progress bar
 
-			$snps_processed += scalar(keys %{$snps{$locus}});
+			$snps_processed++;
 			$progress->update($snps_processed) unless $threads;
 
 			print TEMP join("\t", $locus, @uniq_haps), "\n" if $threads;
@@ -496,7 +492,7 @@ foreach my $ind (@samples) {
 			}
 			if ($miss_bool == 1) {
 				$fail_codes{$locus} = 3; # fail code for missing genotype
-				$snps_processed += scalar(keys %{$snps{$locus}});
+				$snps_processed++;
 				$progress->update($snps_processed) unless $threads;
 
 				# Update the missing data log if the genotype is missing
@@ -535,7 +531,7 @@ foreach my $ind (@samples) {
 
 		# Update the progress bar
 
-		$snps_processed += scalar(keys %{$snps{$locus}});
+		$snps_processed++;
 		$progress->update($snps_processed) unless $threads;
 
 
@@ -561,10 +557,13 @@ foreach my $ind (@samples) {
 		print "Collapsed $stats{'attempted_snps'} SNPs into ", $success_loci, ' haplotypes', "\n";
 	}
 
+
 	$pm->finish if $threads;
 }
 
 $pm->wait_all_children if $threads;
+
+
 
 # Combine information into common data structures and clean up individual files, if run in parallel
 
