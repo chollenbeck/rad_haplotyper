@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.4';
+my $version = '1.1.5';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
