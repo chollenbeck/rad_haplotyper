@@ -1281,7 +1281,15 @@ sub build_haps {
 	my @obs_haplotypes;
 	my @new_haplotypes;
 
-	my $bam = "$ind-RG.bam";
+	# Check to see if the dDocent version of the BAM file exists, if not, use the original name
+	my $bam;
+	if (-e "$ind-RG.bam") {
+		$bam = "$ind-RG.bam";
+	} elsif (-e "$ind.bam") {
+		$bam = "$ind.bam";
+	} else {
+		die "Can't find BAM file for individual: $ind";
+	}
 
 	my $sam = `samtools view $bam $locus`;
 
