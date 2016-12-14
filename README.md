@@ -1,11 +1,11 @@
 # rad_haplotyper
-#### A program for building SNP haplotypes from RAD sequencing data
+### A program for building SNP haplotypes from RAD sequencing data
 
 rad_haplotyper is a program designed to produce SNP haplotypes from RAD-seq data with fixed-size RAD loci (either single- or paired-end double digest RAD sequences or single-end, single-digest RAD sequences). Haplotyping SNPs across RAD loci is an effective means of eliminating data analysis problems caused by non-independence of SNP loci present on the same RAD locus while also maximizing the information content of each locus. It is also a useful tool for data quality control, because haplotyping provides a test for paralogy.
 
 rad_haplotyper is written in Perl and is designed to be run on Linux systems. It was originally designed to be compatible with the dDocent pipeline for RAD-seq data processing [](https://github.com/jpuritz/dDocent), but is also able to accomodate the output of other pipelines, provided that the SNP data can be converted to VCF format, and that read alignments for each individual are available in BAM format.
 
-##### Installation
+### Installation
 
  It requires a few Perl modules, which can in most cases be installed with `cpan` (just include the name of the actual module):
 
@@ -24,13 +24,13 @@ List::MoreUtils<br />
 Term::ProgressBar<br />
 Parallel::ForkManager<br />
 
-##### Running the program
+### Running the program
 
 Assumptions about the data:
 
-_High quality SNP genotpyes_: The program tends to work best when the SNP data to be haplotyped have been carefully filtered for quality score, etc. prior to running. This is because successful haplotyping relies on observing SNPs from all sites listed at a locus in the VCF file. A single low-quality SNP that would otherwise have been removed from the data can cause an entire locus to fail.
+**High quality SNP genotypes**: The program tends to work best when the SNP data to be haplotyped have been carefully filtered for quality score, etc. prior to running. This is because successful haplotyping relies on observing SNPs from all sites listed at a locus in the VCF file. A single low-quality SNP that would otherwise have been removed from the data can cause an entire locus to fail.
 
-_Discrete RAD loci_: In this program, haplotyping is based on the idea that single- and paired-end reads capture the phase of linked SNPs. RAD loci are defined by contigs specified in the VCF file. It therefore requires that each set of reads, whether single or paired-end, (mostly) cover all of the sites to be haplotyped at a locus (contig), which is the case for single-end RAD data of various types and for paired-end ddRAD data. Paired-end reads from single-digest RAD experiments are not suitable for the program at the moment because reverse reads do not necessarily cover each variable site. This also poses a problem for RAD experiments where SNP calling is based on alignment to an existing reference genome (rather than one based on _de novo_ RAD assembly), although a workaround for this problem is being considered.
+**Discrete RAD loci**: In this program, haplotyping is based on the idea that single- and paired-end reads capture the phase of linked SNPs. RAD loci are defined by contigs specified in the VCF file. It therefore requires that each set of reads, whether single or paired-end, (mostly) cover all of the sites to be haplotyped at a locus (contig), which is the case for single-end RAD data of various types and for paired-end ddRAD data. Paired-end reads from single-digest RAD experiments are not suitable for the program at the moment because reverse reads do not necessarily cover each variable site. This also poses a problem for RAD experiments where SNP calling is based on alignment to an existing reference genome (rather than one based on _de novo_ RAD assembly), although a workaround for this problem is being considered.
 
 rad_haplotyper requires two types of input:
 
@@ -57,11 +57,11 @@ This ([tidy](http://vita.had.co.nz/papers/tidy-data.pdf)) file can be loaded int
 
 `ind_stats.out`: This file lists number of loci that are possible paralogs, have low coverage/errors, missing genotypes, number of failed loci, the total number of loci, and the proportion of successful loci on a per individual basis. This file can be used to identify and remove problematic individuals from the final data set.
 
-###### Output options:
+#### Output options:
 
 There are several options for outputting the final passing haplotypes:
 
-*Genepop format*: output to a Genepop file with `-g` or `--genepop`, followed by the name of the output file. This requires a population map is provided (with the flag `-p` or `--popmap`: a file that maps individuals to populations. The format for the popmap is a simple tab-delimited text file with one individual per line:
+**Genepop format**: output to a Genepop file with `-g` or `--genepop`, followed by the name of the output file. This requires a population map is provided (with the flag `-p` or `--popmap`: a file that maps individuals to populations. The format for the popmap is a simple tab-delimited text file with one individual per line:
 
 ```
 IND_001 1
@@ -71,16 +71,16 @@ IND_004 2
 ```
 The name of the population can be any string (just don't get crazy), as long as it is the same for each member of a population.
 
-*Tab-separated (TSV) format*: output to a generic tab-separated output file for genetic map applications with  `-t` or `--tsvfile`, followed by the name of the output file. Currently, this only supports outbred mapping crosses, and requires that the parental individuals are included in the dataset, and are specified with the flags `-p1` and `-p2`.
+**Tab-separated (TSV) format**: output to a generic tab-separated output file for genetic map applications with  `-t` or `--tsvfile`, followed by the name of the output file. Currently, this only supports outbred mapping crosses, and requires that the parental individuals are included in the dataset, and are specified with the flags `-p1` and `-p2`.
 
-*VCF output*: output to a non-phased VCF file with  `-o` or `--vcfout`, followed by the name of the output file. This will produce a non-haplotyped VCF file containing only the loci that passed the haplotype building process. This is useful for using haplotyping as a SNP filtering strategy.
+**VCF output**: output to a non-phased VCF file with  `-o` or `--vcfout`, followed by the name of the output file. This will produce a non-haplotyped VCF file containing only the loci that passed the haplotype building process. This is useful for using haplotyping as a SNP filtering strategy.
 
-*ima2 output*: output to a file formatted for the program ima2 with `-a` or `--ima`, followed by the name of the output file. This is an experimental output file type (it hasn't been officially tested in ima2), but is useful for getting the entire haplotype sequence out of the program for whatever purpose. Note that this requires that a reference genome (a FASTA file with an entry for each RAD locus) be specified with the `-r` or `--reference` flag.
+**ima2 output**: output to a file formatted for the program ima2 with `-a` or `--ima`, followed by the name of the output file. This is an experimental output file type (it hasn't been officially tested in ima2), but is useful for getting the entire haplotype sequence out of the program for whatever purpose. Note that this requires that a reference genome (a FASTA file with an entry for each RAD locus) be specified with the `-r` or `--reference` flag.
 
 
-##### How it works:
+### How it works:
 
-###### Haplotype calling:
+#### Haplotype calling:
 
 The program works by first building a list of loci to be haplotyped from the VCF file. Options are available to control how indels and complex polymorphisms are treated.
 
@@ -97,7 +97,7 @@ For each individual, the reason that the locus failed the haplotyping procedure 
 *Too few haplotypes*: If an individual has too few haplotypes given the SNP genotypes, this is often indicative of a genotyping error. If SNP data are properly filtered (based on quality scores, etc.) prior to haplotyping, this is not very common.
 
 
-###### Overall Passing/Failing:
+#### Overall Passing/Failing:
 
 Loci fail the overall haplotyping procedure (and are withheld from the output files) based on the number of individuals that fail to build haplotypes at that locus. For each locus, the number of individuals for which that locus failed to haplotype is recorded (and for which reason). The user can provide thresholds (or accept default thresholds) to specify how many individuals have to fail haplotype building for each reason for the locus to fail overall. Default values are:
 
@@ -111,7 +111,7 @@ Ultimately, individual genotypes that fail for either of the two reasons above (
 
 This strategy ensures that in the output data set, the overall amount of missing data for a particular locus is less than 1 - (miss_cutoff).
 
-##### Other useful options:
+#### Other useful options:
 
 There are other miscellaneous options that you should consider when running the program:
 
@@ -247,7 +247,7 @@ The full set of command line options is below:
 
 ```
 
-##### Acknowledgements
+### Acknowledgements
 
 rad_haplotyper is written and maintained by Chris Hollenbeck, with help from Stuart Willis, Jon Puritz, Shannon O'Leary, Dave Portnoy, and the [Marine Genomics Lab](marinegenomicslab.tamucc.edu) at TAMU-CC.
 
