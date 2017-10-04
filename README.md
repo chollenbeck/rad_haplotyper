@@ -45,7 +45,7 @@ conda config --add channels bioconda
 Create a rad_haplotyper conda environment:
 
 ```
-conda create -n rad_haplotyper_env  rad_haplotyper
+conda create -n rad_haplotyper_env rad_haplotyper
 ```
 
 Activate the dDocent environment:
