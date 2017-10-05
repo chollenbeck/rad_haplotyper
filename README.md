@@ -7,7 +7,7 @@ rad_haplotyper is written in Perl and is designed to be run on Linux systems. It
 
 ### Installation
 
-### CPAN
+#### CPAN
 It requires a few Perl modules, which can in most cases be installed with `cpan` (just include the name of the actual module):
 
 ```
@@ -26,6 +26,8 @@ Term::ProgressBar<br />
 Parallel::ForkManager<br />
 
 #### Bioconda
+
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat-square)](http://bioconda.github.io/recipes/rad_haplotyper/README.html)
 
 Conda is an open source package and environment management system for installing multiple versions of software packages and their dependencies and switching easily between them. It works on Linux, OS X and Windows, and was created for Python programs but can package and distribute any software.
 
