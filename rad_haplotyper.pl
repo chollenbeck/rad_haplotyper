@@ -467,6 +467,18 @@ foreach my $ind (@samples) {
 		}
 	}
 
+	if ($genomic_ref) {
+	    my $bam;
+	    if (-e "$ind-RG.bam") {
+		$bam = "$ind-RG.bam";
+	    } elsif (-e "$ind.bam") {
+		$bam = "$ind.bam";
+	    } else {
+		die "Can't find BAM file for individual: $ind";
+	    }
+	    `bedtools intersect -abam $bam -b $vcffile -wa | samtools view -h - | samtools view -bS - > $ind.tmp.bam`
+	}
+
 
 	my $indiv_no = $indiv_index{$ind};
 	print LOG "---------$ind----------\n" if $debug;
@@ -561,6 +573,10 @@ foreach my $ind (@samples) {
 		$progress->update($snps_processed) unless $threads;
 
 
+	}
+
+	if ($genomic_ref) {
+	    unlink "$ind.tmp.bam"
 	}
 
 	close TEMP if $threads;
@@ -1312,13 +1328,17 @@ sub build_haps {
 
 	# Check to see if the dDocent version of the BAM file exists, if not, use the original name
 	my $bam;
-	if (-e "$ind-RG.bam") {
-		$bam = "$ind-RG.bam";
-	} elsif (-e "$ind.bam") {
-		$bam = "$ind.bam";
+	if ($genomic_ref) {
+	    $bam = "$ind.tmp.bam"
 	} else {
+	    if (-e "$ind-RG.bam") {
+		$bam = "$ind-RG.bam";
+	    } elsif (-e "$ind.bam") {
+		$bam = "$ind.bam";
+	    } else {
 		die "Can't find BAM file for individual: $ind";
-	}
+	    }
+        }
 
 	my $sam;
 	if ($genomic_ref) {
