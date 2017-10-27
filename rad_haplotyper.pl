@@ -1723,6 +1723,10 @@ perl rad_haplotyper.pl -v <vcffile> [options]
 
 Options:
      -v	<vcffile>		input vcf file
+     
+         -b	[bedfile]		BED file containing regions to be haplotyped
+
+	 -s	[samples]		optionally specify an individual sample to be haplotyped
 
 	 -r	[reference]		reference genome
 
@@ -1776,6 +1780,14 @@ VCF input file
 =item B<-r, --reference>
 
 Reference genome (FASTA format) - required if IMa output is required
+
+=item B<-b, --bedfile>
+
+BED file that specifies the intervals of the reference genome that should be haplotyped. This is required if the reference genome does not contain discrete RAD loci as separate contigs
+
+=item B<--genomic_ref>
+
+Run the program with a reference genome that does not contain discrete RAD loci
 
 =item B<-s, --samples>
 
