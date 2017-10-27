@@ -8,7 +8,7 @@ rad_haplotyper is written in Perl and is designed to be run on Linux systems. It
 
 You can read more about the method in the following publication:
 
-Willis, S. C., Hollenbeck, C. M., Puritz, J. B., Gold, J. R. and Portnoy, D. S. (2017), Haplotyping RAD loci: an efficient method to filter paralogs and account for physical linkage. Mol Ecol Resour, 17: 955–965. doi:10.1111/1755-0998.12647 [link](http://onlinelibrary.wiley.com/doi/10.1111/1755-0998.12647/abstract)
+Willis, S. C., Hollenbeck, C. M., Puritz, J. B., Gold, J. R. and Portnoy, D. S. (2017), Haplotyping RAD loci: an efficient method to filter paralogs and account for physical linkage. Mol Ecol Resour, 17: 955–965. doi:10.1111/1755-0998.12647 [[link](http://onlinelibrary.wiley.com/doi/10.1111/1755-0998.12647/abstract)]
 
 ### Installation
 
