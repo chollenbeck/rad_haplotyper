@@ -1,9 +1,14 @@
 # rad_haplotyper
+
 ### A program for building SNP haplotypes from RAD sequencing data
 
 rad_haplotyper is a program designed to produce SNP haplotypes from RAD-seq data with fixed-size RAD loci (either single- or paired-end double digest RAD sequences or single-end, single-digest RAD sequences). Haplotyping SNPs across RAD loci is an effective means of eliminating data analysis problems caused by non-independence of SNP loci present on the same RAD locus while also maximizing the information content of each locus. It is also a useful tool for data quality control, because haplotyping provides a test for paralogy.
 
 rad_haplotyper is written in Perl and is designed to be run on Linux systems. It was originally designed to be compatible with the dDocent pipeline for RAD-seq data processing [](https://github.com/jpuritz/dDocent), but is also able to accomodate the output of other pipelines, provided that the SNP data can be converted to VCF format, and that read alignments for each individual are available in BAM format.
+
+You can read more about the method in the following publication:
+
+Willis, S. C., Hollenbeck, C. M., Puritz, J. B., Gold, J. R. and Portnoy, D. S. (2017), Haplotyping RAD loci: an efficient method to filter paralogs and account for physical linkage. Mol Ecol Resour, 17: 955–965. doi:10.1111/1755-0998.12647 [link](http://onlinelibrary.wiley.com/doi/10.1111/1755-0998.12647/abstract)
 
 ### Installation
 
