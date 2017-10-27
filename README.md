@@ -7,24 +7,6 @@ rad_haplotyper is written in Perl and is designed to be run on Linux systems. It
 
 ### Installation
 
-#### CPAN
-It requires a few Perl modules, which can in most cases be installed with `cpan` (just include the name of the actual module):
-
-```
-cpan Perl::Module
-```
-
-The following Perl modules are required:
-
-Vcf<br />
-Data::Dumper<br />
-Getopt::Long<br />
-Pod::Usage<br />
-Bio::Cigar<br />
-List::MoreUtils<br />
-Term::ProgressBar<br />
-Parallel::ForkManager<br />
-
 #### Bioconda
 
 [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat-square)](http://bioconda.github.io/recipes/rad_haplotyper/README.html)
@@ -58,15 +40,37 @@ source activate rad_haplotyper_env
 
 And that's it!
 
-### Running the program
+#### Manual install with CPAN
+The program requires a few Perl modules, which can in most cases be installed with `cpan` (just include the name of the actual module):
 
-Assumptions about the data:
+```
+cpan Perl::Module
+```
+
+The following Perl modules are required:
+
+Vcf<br />
+Data::Dumper<br />
+Getopt::Long<br />
+Pod::Usage<br />
+Bio::Cigar<br />
+List::MoreUtils<br />
+Term::ProgressBar<br />
+Parallel::ForkManager<br />
+
+### Assumptions about the data
 
 **High quality SNP genotypes**: The program tends to work best when the SNP data to be haplotyped have been carefully filtered for quality score, etc. prior to running. This is because successful haplotyping relies on observing SNPs from all sites listed at a locus in the VCF file. A single low-quality SNP that would otherwise have been removed from the data can cause an entire locus to fail.
 
-**Discrete RAD loci**: In this program, haplotyping is based on the idea that single- and paired-end reads capture the phase of linked SNPs. RAD loci are defined by contigs specified in the VCF file. It therefore requires that each set of reads, whether single or paired-end, (mostly) cover all of the sites to be haplotyped at a locus (contig), which is the case for single-end RAD data of various types and for paired-end ddRAD data. Paired-end reads from single-digest RAD experiments are not suitable for the program at the moment because reverse reads do not necessarily cover each variable site. This also poses a problem for RAD experiments where SNP calling is based on alignment to an existing reference genome (rather than one based on _de novo_ RAD assembly), although a workaround for this problem is being considered.
+**Discrete RAD loci**: In this program, haplotyping is based on the idea that single- and paired-end reads capture the phase of linked SNPs. RAD loci are defined by contigs specified in the VCF file. It therefore requires that each set of reads, whether single or paired-end, (mostly) cover all of the sites to be haplotyped at a locus (contig), which is the case for single-end RAD data of various types and for paired-end ddRAD data.
 
-rad_haplotyper requires two types of input:
+In the case that reads are aligned to a reference genome that was not created _de novo_ from the RAD data (i.e. the contigs in the reference genome do not necessarily represent individual RAD loci), a BED file can be provided that describes the intervals of the reference genome that do correspond to RAD loci and should be haplotyped. In this case, the contigs listed in the VCF file will be those present genomic reference, but only SNPs present in the same BED interval will be combined into haplotypes. Each BED interval supplied will be given a new name (Contig_XX), which will be used in the output. A file ("contigs.bed") is created that maps each haplotyped BED interval to its new name. 
+
+### Running the program:
+
+#### Discrete RAD loci (_de novo_ reference genome) 
+
+In default mode (assuming discrete RAD loci in the reference genome), rad_haplotyper requires two types of input:
 
 - A VCF file with SNP calls (called `snps.vcf` in this example)
 - A BAM file with aligned reads for each individual
@@ -90,6 +94,20 @@ By default, this will not produce any output with the called haplotypes, but it 
 This ([tidy](http://vita.had.co.nz/papers/tidy-data.pdf)) file can be loaded into R and can be used to further filter loci from the data set based on user-defined cut-off values.
 
 `ind_stats.out`: This file lists number of loci that are possible paralogs, have low coverage/errors, missing genotypes, number of failed loci, the total number of loci, and the proportion of successful loci on a per individual basis. This file can be used to identify and remove problematic individuals from the final data set.
+
+#### Genomic reference mode
+
+If a genomic reference is used, one additional file is required:
+
+- A BED file containing intervals that represent RAD loci
+
+In addition, the flag `--genomic_ref` should be provided:
+
+```
+perl rad_haplotyper.pl -v snps.vcf -b rad_loci.bed --genomic_ref
+```
+
+One additional output file, "contigs.bed" will map the new contig names to the intervals in the original reference genome.
 
 #### Output options:
 
