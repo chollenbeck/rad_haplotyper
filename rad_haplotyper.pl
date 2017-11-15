@@ -1,4 +1,4 @@
-#!/usr/bin/env perl
+#!/usr/bin/perl -w
 use strict;
 use Vcf;
 use Data::Dumper;
@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.7';
+my $version = '1.1.5';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -20,8 +20,6 @@ my $opt_version = '';
 my $vcffile = '';
 my $tsvfile = '';
 my $outfile = '';
-my $genomic_ref = '';
-my $bedfile = '';
 my $genepop = '';
 my $vcfout = '';
 my $imafile = '';
@@ -46,8 +44,6 @@ my $hap_rescue = 0.05;
 GetOptions(	'version' => \$opt_version,
 			'vcffile|v=s' => \$vcffile,
 			'tsvfile|t=s' => \$tsvfile,
-		        'genomic_ref' => \$genomic_ref,
-		        'bedfile|b=s' => \$bedfile,
 			'genepop|g=s' => \$genepop,
 			'vcfout|o=s' => \$vcfout,
 			'ima|a=s' => \$imafile,
@@ -91,26 +87,19 @@ if ($debug) {
 # Some warnings for common input errors
 
 if ($genepop && ! $popmap) {
-    warn "\nGenepop output requires a population map to be specified\n";
-    pod2usage(-verbose => 1);
+	warn "\nGenepop output requires a population map to be specified\n";
+	pod2usage(-verbose => 1) if @ARGV == 0;
 }
 
 if ($tsvfile && (! $parent1 || ! $parent2)) {
-    warn "\nTSV output requires parents to be specified\n";
-    pod2usage(-verbose => 1);
+	warn "\nTSV output requires parents to be specified\n";
+	pod2usage(-verbose => 1) if @ARGV == 0;
 }
 
 if ($imafile && ! $reference) {
-    warn "\nIMa output requires a reference FASTA sequence\n";
-    pod2usage(-verbose => 1);
+	warn "\nIMa output requires a reference FASTA sequence\n";
+	pod2usage(-verbose => 1) if @ARGV == 0;
 }
-
-if ($genomic_ref && ! $bedfile) {
-    warn "\nA BED file is required in genomic reference mode\n";
-    pod2usage(-verbose => 1);
-}
-
-
 
 
 my %stats;
@@ -441,20 +430,6 @@ my %haplotypes;
 
 my $pm = Parallel::ForkManager->new($threads) if $threads;
 
-my %bed;
-if ($genomic_ref) {
-    my ($new_snp_ref, $new_alleles_ref, $bed_ref) = recode_contigs(\%snps, \%alleles);
-    my %new_snps = %{$new_snp_ref};
-    my %new_alleles = %{$new_alleles_ref};
-    %bed = %{$bed_ref};
-    %snps = %new_snps;
-    %alleles = %new_alleles; 
-
-    # Replace the stats variables that were defined at first
-    $stats{"attempted_loci"} = scalar(keys %snps);
-}
-
-
 foreach my $ind (@samples) {
 
 	if ($threads) {
@@ -465,18 +440,6 @@ foreach my $ind (@samples) {
 			open(LOG, ">", "$ind.haps.log");
 
 		}
-	}
-
-	if ($genomic_ref) {
-	    my $bam;
-	    if (-e "$ind-RG.bam") {
-		$bam = "$ind-RG.bam";
-	    } elsif (-e "$ind.bam") {
-		$bam = "$ind.bam";
-	    } else {
-		die "Can't find BAM file for individual: $ind";
-	    }
-	    `bedtools intersect -abam $bam -b $vcffile -wa | samtools view -h - | samtools view -bS - > $ind.tmp.bam`
 	}
 
 
@@ -541,7 +504,6 @@ foreach my $ind (@samples) {
 
 
 		my ($hap_ref, $failed) = build_haps($locus, $ind, $reference, \%snps, \%alleles, \%indiv_index, $depth, $hap_rescue);
-
 		@haplotypes = @{$hap_ref};
 
 
@@ -573,10 +535,6 @@ foreach my $ind (@samples) {
 		$progress->update($snps_processed) unless $threads;
 
 
-	}
-
-	if ($genomic_ref) {
-	    unlink "$ind.tmp.bam"
 	}
 
 	close TEMP if $threads;
@@ -669,10 +627,6 @@ if ($debug) {
 }
 
 # Filter loci with too much missing data or an excess of haplotypes
-
-if ($genomic_ref) {
-    @all_loci = keys %snps;
-}
 
 my ($filt_hap_ref, $snp_hap_count_ref, $miss_ref) = filter_haplotypes(\%haplotypes, \@samples, $miss_cutoff, $max_paralog_inds, $max_low_cov_inds, \@all_loci, \%failed);
 %haplotypes = %{$filt_hap_ref};
@@ -1328,25 +1282,15 @@ sub build_haps {
 
 	# Check to see if the dDocent version of the BAM file exists, if not, use the original name
 	my $bam;
-	if ($genomic_ref) {
-	    $bam = "$ind.tmp.bam"
-	} else {
-	    if (-e "$ind-RG.bam") {
+	if (-e "$ind-RG.bam") {
 		$bam = "$ind-RG.bam";
-	    } elsif (-e "$ind.bam") {
+	} elsif (-e "$ind.bam") {
 		$bam = "$ind.bam";
-	    } else {
-		die "Can't find BAM file for individual: $ind";
-	    }
-        }
-
-	my $sam;
-	if ($genomic_ref) {
-	    my $bed_string = join("\t", $bed{$locus}->[0], $bed{$locus}->[1], $bed{$locus}->[2]);
-	    $sam = `samtools view $bam -L /dev/stdin <<<"$bed_string"`;
 	} else {
-	    $sam = `samtools view $bam $locus`;
+		die "Can't find BAM file for individual: $ind";
 	}
+
+	my $sam = `samtools view $bam $locus`;
 
 	my @lines = split("\n", $sam);
 	my %reads;
@@ -1659,58 +1603,6 @@ sub logger {
 	}
 }
 
-sub recode_contigs {
-    my %snps = %{$_[0]};
-    my %alleles = %{$_[1]};
-    
-    # Read in the BED file
-    open(BED, "<", $bedfile) or die $!;
-   
-    my $contig_count = 1;
-    my %bed;
-    while(<BED>) {
-	chomp;
-	my ($chrom, $start, $end) = split;
-	my $contig = join("_", "Contig", $contig_count);
-	$bed{$chrom} = [] unless $bed{$chrom};
-	push @{$bed{$chrom}}, [$start, $end, $contig];
-	$contig_count++;
-
-    }
-    close BED;
-
-    my %new_bed;
-    my %new_snps;
-    my %new_alleles;
-    foreach my $chr (keys %snps) {
-	foreach my $snp (keys %{$snps{$chr}}) {
-	    foreach my $region (@{$bed{$chr}}) {
-		if ($snp < $region->[1] && $snp > $region->[0]) {
-		    $new_snps{$region->[2]}{$snp} = $snps{$chr}{$snp};
-		    $new_alleles{$region->[2]}{$snp} = $alleles{$chr}{$snp};
-		    $new_bed{$region->[2]} = [$chr, $region->[0], $region->[1]];
-		    last;
-		}
-	    }
-	}
-    }
-    
-    if ($debug) {
-	open(CDUMP, ">", "cdump.out") or die $!;
-	print CDUMP Dumper(\%new_snps);
-    }
-
-    open(BEDOUT, ">", 'contigs.unsorted.bed') or die $!;
-    foreach my $contig (keys %new_bed) {
-	print BEDOUT join("\t", $new_bed{$contig}->[0], $new_bed{$contig}->[1], $new_bed{$contig}->[2], $contig), "\n";
-    }
-    `sort -k 1,1 -k2,2n contigs.unsorted.bed > contigs.bed`;
-    close BEDOUT;
-
-    return (\%new_snps, \%new_alleles, \%new_bed);
-		
-}
-
 __END__
 
 =head1 NAME
@@ -1723,10 +1615,6 @@ perl rad_haplotyper.pl -v <vcffile> [options]
 
 Options:
      -v	<vcffile>		input vcf file
-     
-         -b	[bedfile]		BED file containing regions to be haplotyped
-
-	 -s	[samples]		optionally specify an individual sample to be haplotyped
 
 	 -r	[reference]		reference genome
 
@@ -1780,14 +1668,6 @@ VCF input file
 =item B<-r, --reference>
 
 Reference genome (FASTA format) - required if IMa output is required
-
-=item B<-b, --bedfile>
-
-BED file that specifies the intervals of the reference genome that should be haplotyped. This is required if the reference genome does not contain discrete RAD loci as separate contigs
-
-=item B<--genomic_ref>
-
-Run the program with a reference genome that does not contain discrete RAD loci
 
 =item B<-s, --samples>
 
