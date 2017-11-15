@@ -102,14 +102,15 @@ This ([tidy](http://vita.had.co.nz/papers/tidy-data.pdf)) file can be loaded int
 
 #### Genomic reference mode
 
-If a genomic reference is used, one additional file is required:
+If a genomic reference is used, two additional files are required:
 
 - A BED file containing intervals that represent RAD loci
+- A reference genome (a FASTA file with an entry for each RAD locus) be specified with the `-r` or `--reference` flag.
 
 In addition, the flag `--genomic_ref` should be provided:
 
 ```
-perl rad_haplotyper.pl -v snps.vcf -b rad_loci.bed --genomic_ref
+perl rad_haplotyper.pl -v snps.vcf -b rad_loci.bed --genomic_ref -r reference.fasta
 ```
 
 One additional output file, "contigs.bed" will map the new contig names to the intervals in the original reference genome.
