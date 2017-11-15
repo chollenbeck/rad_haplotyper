@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.7';
+my $version = '1.1.8';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -107,6 +107,10 @@ if ($imafile && ! $reference) {
 
 if ($genomic_ref && ! $bedfile) {
     warn "\nA BED file is required in genomic reference mode\n";
+    pod2usage(-verbose => 1);
+}
+if ($genomic_ref && ! $reference) {
+    warn "\nA reference FASTA file is required in genomic reference mode\n";
     pod2usage(-verbose => 1);
 }
 
@@ -452,6 +456,8 @@ if ($genomic_ref) {
 
     # Replace the stats variables that were defined at first
     $stats{"attempted_loci"} = scalar(keys %snps);
+    # Create genomic reference file so sorted bedtools option can be used
+    `mawk -v OFS='\t' {'print \$1,\$2'} $reference.fai > genome.file`
 }
 
 
@@ -476,7 +482,7 @@ foreach my $ind (@samples) {
 	    } else {
 		die "Can't find BAM file for individual: $ind";
 	    }
-	    `bedtools intersect -abam $bam -b $vcffile -wa | samtools view -h - | samtools view -bS - > $ind.tmp.bam`
+	    `bedtools intersect -abam $bam -b $vcffile -wa -sorted -g genome.file| samtools view -h - | samtools view -bS - > $ind.tmp.bam`
 	}
 
 
