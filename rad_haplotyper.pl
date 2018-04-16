@@ -1525,13 +1525,18 @@ sub build_haps {
 					$keep_list{$uniq_obs_haplotypes[$i]}++;
 				}
 			} else { # the rescue parameter specifies a proportion of reads
-				if ($hap_counts{$uniq_obs_haplotypes[$i]} > $rescue * $total_haps) {
+				my $num_haps = @obs_haplotypes;
+				my $thresh = $rescue * $num_haps;
+				if ($hap_counts{$uniq_obs_haplotypes[$i]} > $thresh) {
 					$keep_list{$uniq_obs_haplotypes[$i]}++;
 				}
 			}
 		}
 		@uniq_obs_haplotypes = keys %keep_list;
+		my $num_haps = @obs_haplotypes;
+		my $thresh = $rescue * $num_haps;
 		print LOG $locus, ": Corrected Unique Observed Haps:\n" if $debug;
+		print LOG $locus, ": haplotype count threshold:", $thresh, "\n"  if $debug;
 		print LOG Dumper(\@uniq_obs_haplotypes) if $debug;
 		if ($no_exp_haplotypes == scalar(@uniq_obs_haplotypes)) {
 			@new_haplotypes = @uniq_obs_haplotypes;
