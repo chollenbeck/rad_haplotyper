@@ -10,7 +10,7 @@ use List::Util qw/shuffle/;
 use Term::ProgressBar;
 use Parallel::ForkManager;
 
-my $version = '1.1.9';
+my $version = '1.1.10';
 
 my $command = 'rad_haplotyper ' . join(" ", @ARGV);
 
@@ -1349,7 +1349,7 @@ sub build_haps {
 	my $sam;
 	if ($genomic_ref) {
 	    my $bed_string = join("\t", $bed{$locus}->[0], $bed{$locus}->[1], $bed{$locus}->[2]);
-	    $sam = `samtools view $bam -L /dev/stdin <<<"$bed_string"`;
+	    $sam = `echo "$bed_string" | samtools view $bam -L /dev/stdin`;
 	} else {
 	    $sam = `samtools view $bam $locus`;
 	}
